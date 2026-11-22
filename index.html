@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mon Planning</title>
+  <meta name="description" content="Mon emploi du temps personnel : cours, révisions, sport, objectifs.">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Planning">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // thème appliqué avant le rendu pour éviter un flash
+    try { var t = (JSON.parse(localStorage.getItem('mon-planning-v1') || '{}').settings || {}).theme || 'auto';
+      if (t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <main id="main">
+      <header id="topbar"></header>
+      <div id="view"></div>
+    </main>
+    <nav id="tabbar"></nav>
+    <button id="fab" aria-label="Ajouter"></button>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+  <noscript>Active JavaScript pour utiliser Mon Planning.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
