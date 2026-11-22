@@ -52,8 +52,20 @@ L'app installée se met à jour toute seule à la prochaine ouverture avec du r�
 
 ---
 
-## 3. Importer l'emploi du temps de cours chaque semaine
+## 3. Importer l'emploi du temps de cours
 
+**Avec le fichier .ics (le plus simple)** : **Réglages › Importer des cours**, puis « Choisir un fichier » et sélectionne ton `.ics`.
+Indique la période (par exemple jusqu'au 09/01) et clique sur **Importer**.
+
+À l'import :
+- les examens (`[Examen]`) arrivent dans « Examens & CC » ;
+- les révisions se concentrent automatiquement sur les matières dont l'examen approche ;
+- la date du TOEFL est détectée.
+
+Les cours du 16/11/2026 au 09/01/2027 sont **déjà inclus** dans l'app.
+Quand tu auras un nouveau .ics complet (après le 9 janvier), importe-le avec « à partir du » = la date du jour.
+
+**Avec une capture d'écran** :
 1. Fais une capture de ton emploi du temps de la semaine (une ou deux captures, comme d'habitude).
 2. Envoie-la à Claude en lui demandant : *« Convertis pour Mon Planning »*.
 3. Claude te renvoie un bloc de texte comme celui-ci :
