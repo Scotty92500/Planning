@@ -395,3 +395,55 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   #topbar .cal-tools .btn.icon { width: 30px; height: 30px; }
   #topbar .seg button { padding: 5px 9px; }
 }
+
+/* ===== Semaine aérée : routines en fines barres ===== */
+.ev.rbar { left: 1px !important; width: 4px !important; padding: 0 !important; border: 0 !important; border-radius: 3px !important; background: var(--c) !important; opacity: .55; box-shadow: none !important; z-index: 1; }
+.ev.rbar::after, .ev.rbar .rs { display: none !important; }
+
+/* ===== Liquid glass (commun) ===== */
+:root[data-style^="glass"] body { background-attachment: fixed; }
+:root[data-style^="glass"] #sidebar, :root[data-style^="glass"] #topbar, :root[data-style^="glass"] #tabbar, :root[data-style^="glass"] .gh-cell, :root[data-style^="glass"] .time-col, :root[data-style^="glass"] .modal, :root[data-style^="glass"] .card, :root[data-style^="glass"] .seg, :root[data-style^="glass"] .mcell, :root[data-style^="glass"] .cl-head {
+  -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%); }
+:root[data-style^="glass"] .day-col { background-color: transparent !important; }
+:root[data-style^="glass"] .day-col.today { background-color: rgba(255,255,255,.18) !important; }
+:root[data-style^="glass"] .ev { border-left: 0; border-radius: 10px; padding-left: 6px; }
+:root[data-style^="glass"] .grid.compact .ev { border-radius: 8px; padding-left: 4px; }
+:root[data-style^="glass"] .ev .rs::after { display: none; }
+:root[data-style^="glass"] #fab, :root[data-style="glass-soft"] #fab { border-radius: 50%; }
+:root[data-style^="glass"] .btn, :root[data-style^="glass"] input, :root[data-style^="glass"] select { border-radius: 10px; }
+
+/* Verre clair */
+:root[data-style="glass-light"] { --bg: #eef0f7; --panel: rgba(255,255,255,.55); --sub: rgba(255,255,255,.5); --hover: rgba(255,255,255,.7); --border: rgba(255,255,255,.65); --border-strong: rgba(120,120,140,.25); }
+:root[data-style="glass-light"] body { background: radial-gradient(60vmax 60vmax at 0% 0%, #c7d2fe 0, transparent 60%), radial-gradient(55vmax 55vmax at 100% 20%, #fbcfe8 0, transparent 60%), radial-gradient(60vmax 60vmax at 30% 100%, #bbf7d0 0, transparent 60%), radial-gradient(50vmax 50vmax at 100% 100%, #fde68a 0, transparent 55%), #eef0f7; background-attachment: fixed; }
+:root[data-style="glass-light"] .day-col { background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,.55) 0, rgba(255,255,255,.55) 1px, transparent 1px, transparent var(--hour-h)); border-right: 1px solid rgba(255,255,255,.45); }
+:root[data-style="glass-light"] .ev { background: color-mix(in srgb, var(--c) 26%, rgba(255,255,255,.55)); box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.6), 0 4px 14px color-mix(in srgb, var(--c) 18%, transparent); color: #1c1c28; }
+:root[data-style="glass-light"] .ev .k, :root[data-style="glass-light"] .ev .h { color: color-mix(in srgb, var(--c) 45%, #333); }
+:root[data-style="glass-light"] .gh-cell, :root[data-style="glass-light"] .time-col { background: rgba(255,255,255,.4); border-color: rgba(255,255,255,.6); }
+
+/* Verre sombre */
+:root[data-style="glass-dark"] { --bg: #07070d; --panel: rgba(28,28,40,.55); --sub: rgba(255,255,255,.07); --hover: rgba(255,255,255,.1); --border: rgba(255,255,255,.1); --border-strong: rgba(255,255,255,.18); }
+:root[data-style="glass-dark"] body { background: radial-gradient(55vmax 55vmax at 0% 0%, rgba(99,102,241,.55) 0, transparent 60%), radial-gradient(50vmax 50vmax at 100% 25%, rgba(236,72,153,.4) 0, transparent 60%), radial-gradient(55vmax 55vmax at 20% 100%, rgba(20,184,166,.4) 0, transparent 60%), #07070d; background-attachment: fixed; }
+:root[data-style="glass-dark"] .day-col { background-image: repeating-linear-gradient(to bottom, rgba(255,255,255,.07) 0, rgba(255,255,255,.07) 1px, transparent 1px, transparent var(--hour-h)); border-right: 1px solid rgba(255,255,255,.06); }
+:root[data-style="glass-dark"] .ev { background: color-mix(in srgb, var(--c) 30%, rgba(20,20,32,.45)) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.18), inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent); color: #f4f4f8; }
+:root[data-style="glass-dark"] .ev .k, :root[data-style="glass-dark"] .ev .h { color: color-mix(in srgb, var(--c) 55%, #fff); }
+:root[data-style="glass-dark"] .gh-cell, :root[data-style="glass-dark"] .time-col { background: rgba(20,20,30,.35); }
+:root[data-style="glass-dark"] .ev.soft { background: transparent !important; }
+
+/* Doux et aéré (sans transparence) */
+:root[data-style="glass-soft"] { --bg: #f5f5f7; --panel: #ffffff; --sub: #f0f0f3; --border: #ececf0; }
+:root[data-style="glass-soft"] .day-col { background-image: none; border-right: 0; }
+:root[data-style="glass-soft"] .day-col + .day-col { box-shadow: inset 1px 0 0 #f0f0f3; }
+:root[data-style="glass-soft"] .ev { border: 0; border-radius: 12px; background: color-mix(in srgb, var(--c) 17%, #fff); box-shadow: none; color: color-mix(in srgb, var(--c) 35%, #111); }
+:root[data-style="glass-soft"] .grid.compact .ev { border-radius: 9px; }
+:root[data-style="glass-soft"] .ev .k, :root[data-style="glass-soft"] .ev .h, :root[data-style="glass-soft"] .ev .l { color: color-mix(in srgb, var(--c) 55%, #333); }
+:root[data-style="glass-soft"] .gh-cell { border-bottom: 0; }
+:root[data-style="glass-soft"] .time-col { border-right: 0; }
+:root[data-style="glass-soft"] .time-col div { color: #b4b4bc; }
+:root[data-style="glass-soft"] #topbar, :root[data-style="glass-soft"] #tabbar { border-color: transparent; }
+:root[data-style="glass-dark"] .day-col.today { background-color: rgba(255,255,255,.05) !important; }
+:root[data-style="glass-soft"] .day-col.today { background-color: rgba(91,91,214,.04) !important; }
+
+/* cases plus larges, espacées */
+.grid.compact .ev { padding: 3px 3px 2px 4px; }
+:root[data-style^="glass"] .grid.compact .ev { padding-left: 4px; padding-right: 2px; }
+@media (max-width: 820px) { :root { --time-w: 30px; } .time-col div { font-size: 9px; padding-right: 2px; } }

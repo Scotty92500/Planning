@@ -70,7 +70,7 @@ export function weekReport(s, ws) {
 
   // 4. Sport
   const sportHabit = s.habits.find((h) => h.enabled && h.catId === 'sport' && h.type === 'weekly');
-  const muscu = inWeek.filter((o) => o.catId === 'sport' && o.ev.source !== 'import').length;
+  const muscu = inWeek.filter((o) => o.title === (sportHabit ? sportHabit.title : 'Musculation')).length;
   const target = sportHabit ? sportHabit.times : 3;
   if (muscu < target) items.push({ level: 'warn', title: `Sport : ${muscu}/${target} séances de musculation`, detail: 'Il manque des séances (en plus du sport du vendredi).', action: 'plan' });
   else items.push({ level: 'ok', title: `Sport : ${muscu} séances de musculation`, detail: '' });

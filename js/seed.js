@@ -8,7 +8,7 @@ export const GROUPS = {
   repas: 'Repas',
   sport: 'Sport',
   perso: 'Objectifs perso',
-  asso: 'Volley & BDE',
+  asso: 'LeoVolley, BDE & asso',
   sorties: 'Sorties & loisirs',
   menage: 'Maison & hygiène',
   libre: 'Marge imprévus',
@@ -16,13 +16,13 @@ export const GROUPS = {
 
 export function defaultSettings() {
   return {
-    dayStart: 7, dayEnd: 24, hourHeight: 52, fitScreen: true, theme: 'auto', defaultView: 'week',
+    dayStart: 7, dayEnd: 23, hourHeight: 52, fitScreen: true, visualStyle: 'glass-light', weekRoutines: 'thin', theme: 'auto', defaultView: 'week',
     hiddenCats: [], monthHideRoutine: true,
     groupOrder: ['sommeil', 'etudes', 'repas', 'sport', 'perso', 'asso', 'sorties', 'menage'],
     sleepTarget: 480,
     work: { weekday: ['08:15', '18:30'], sat: ['08:30', '15:00'], sun: ['10:30', '15:30'] },
     studyBlockMax: 90, studyBlockMin: 30, pauseMin: 15,
-    bufferPerDay: 30, maxWorkPerDay: 600,
+    bufferPerDay: 0, maxWorkPerDay: 600,
     studyOnlyIfCourses: true, autoNaps: true,
     perso: { weekday: [['20:30', '22:15']], weekend: [['15:00', '19:00'], ['20:30', '22:15']], capWeekday: 60, capWeekend: 180, freeEvenings: [6] },
     toeflDate: '',
@@ -33,24 +33,21 @@ export function defaultSettings() {
 const C = (id, name, color, group, system = false, parallel = false) => ({ id, name, color, group, system, ...(parallel ? { parallel: true } : {}) });
 export function defaultCategories() {
   return [
-    C('cours', 'Cours en présentiel', '#7cb342', 'etudes'),
-    C('visio', 'Cours en visio', '#f59e0b', 'etudes'),
-    C('examen', 'Examens & CC', '#dc2626', 'etudes'),
-    C('revision', 'Travail perso & révisions', '#4f7cff', 'etudes'),
-    C('dessin', 'Dessin / manga', '#d946ef', 'perso'),
-    C('musique', 'Musique / prods', '#8b5cf6', 'perso'),
-    C('video', 'Montage vidéo', '#14b8a6', 'perso'),
-    C('sport', 'Sport & musculation', '#ef4444', 'sport'),
-    C('volley', 'Volley & LeoVolley', '#eab308', 'asso'),
-    C('bde', 'Asso & BDE', '#06b6d4', 'asso'),
-    C('sorties', 'Loisirs & sorties', '#ec4899', 'sorties'),
-    C('petitdej', 'Petit-déjeuner', '#a3e635', 'repas'),
-    C('repas', 'Repas', '#65a30d', 'repas'),
-    C('hygiene', 'Hygiène / douche', '#38bdf8', 'menage'),
-    C('lessive', 'Lessive', '#c084fc', 'menage', false, true),
-    C('menage', "Rangement d'appart", '#a8a29e', 'menage'),
-    C('sommeil', 'Sommeil & repos', '#64748b', 'sommeil'),
-    C('libre', 'Marge imprévus', '#94a3b8', 'libre', true),
+    C('cours', 'Cours en présentiel', '#34C759', 'etudes'),
+    C('visio', 'Cours en visio', '#FF9500', 'etudes'),
+    C('examen', 'Examens & CC', '#FF3B30', 'etudes'),
+    C('revision', 'Travail perso & révisions', '#FF1493', 'etudes'),
+    C('dessin', 'Dessin / manga', '#AF52DE', 'perso'),
+    C('musique', 'Musique / prods', '#5856D6', 'perso'),
+    C('video', 'Montage vidéo', '#32ADE6', 'perso'),
+    C('sport', 'Sport, muscu & volley', '#00C7BE', 'sport'),
+    C('bde', 'LeoVolley, BDE & asso', '#FFCC00', 'asso'),
+    C('sorties', 'Loisirs & sorties', '#A2845E', 'sorties'),
+    C('repas', 'Repas', '#C9A86A', 'repas'),
+    C('hygiene', 'Hygiène / douche', '#64D2FF', 'menage'),
+    C('lessive', 'Lessive', '#BF9FE6', 'menage', false, true),
+    C('menage', "Rangement d'appart", '#AEAEB2', 'menage'),
+    C('sommeil', 'Sommeil & repos', '#8E8E93', 'sommeil'),
   ];
 }
 
@@ -75,7 +72,7 @@ export function defaultSubjects() {
 const H = (o) => ({ id: uid(), enabled: true, minDuration: o.duration, note: '', ...o });
 export function routineHabits() {
   return [
-    H({ title: 'Petit-déjeuner', catId: 'petitdej', type: 'flex', days: [1, 2, 3, 4, 5, 6, 7], window: ['07:00', '08:00'], weekendWindow: ['08:00', '11:00'], preferred: '07:00', duration: 20, minDuration: 15 }),
+    H({ title: 'Petit-déjeuner', catId: 'repas', type: 'flex', days: [1, 2, 3, 4, 5, 6, 7], window: ['07:00', '08:00'], weekendWindow: ['08:00', '11:00'], preferred: '07:00', duration: 20, minDuration: 15 }),
     H({ title: 'Douche', catId: 'hygiene', type: 'flex', days: [1, 2, 3, 4, 5, 6, 7], window: ['07:00', '08:15'], weekendWindow: ['08:00', '11:30'], preferred: '07:20', duration: 15, note: 'Moment à confirmer (matin ou après le sport ?)' }),
     H({ title: 'Lessive', catId: 'lessive', type: 'with', with: 'Musculation', times: 1, days: [1, 2, 3, 4, 5, 6, 7], duration: 60, note: 'Pendant une séance de muscu — 1 fois/semaine à confirmer' }),
   ];
@@ -117,7 +114,7 @@ export function defaultTasks() {
 
 export function seedRecurring() {
   return [
-    { id: uid(), title: 'Entraînement volley', catId: 'volley', subjectId: '', start: '2026-11-19T19:30', end: '2026-11-19T21:00', location: '', notes: 'Mercredi parfois : à ajouter toi-même.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: ['2026-12-24', '2026-12-31'] },
+    { id: uid(), title: 'Entraînement volley', catId: 'sport', subjectId: '', start: '2026-11-19T19:30', end: '2026-11-19T21:00', location: '', notes: 'Mercredi parfois : à ajouter toi-même.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: ['2026-12-24', '2026-12-31'] },
     { id: uid(), title: 'Réunion BDE (respo événementiel)', catId: 'bde', subjectId: '', start: '2026-11-19T12:30', end: '2026-11-19T13:30', location: '', notes: 'Créneau variable — fin à 13h30 à confirmer.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: ['2026-12-24', '2026-12-31'] },
   ];
 }
@@ -125,7 +122,7 @@ export function seedRecurring() {
 export function seedState() {
   return {
     version: 1,
-    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true, v2: true },
+    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true, v2: true, v3: true },
     tombs: {},
     settings: defaultSettings(),
     categories: defaultCategories(),

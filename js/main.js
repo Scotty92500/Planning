@@ -57,6 +57,7 @@ if (!state.meta.v2 && !state.meta.needsInitialPlan) {
     for (const id of ['visio', 'petitdej', 'hygiene', 'lessive']) {
       if (s.categories.some((c) => c.id === id)) continue;
       const def = defs.find((c) => c.id === id);
+      if (!def) continue; // catégorie fusionnée depuis (v3)
       const anchor = after[id] ? s.categories.findIndex((c) => c.id === after[id]) : s.categories.findIndex((c) => c.id === (id === 'petitdej' ? 'repas' : 'menage'));
       s.categories.splice(anchor >= 0 ? anchor + (after[id] ? 1 : 0) : s.categories.length, 0, def);
     }
@@ -79,11 +80,41 @@ if (!state.meta.v2 && !state.meta.needsInitialPlan) {
   setTimeout(() => toast('Mise à jour : cours visio en orange, petit-déj, douche et lessive ajoutés à ton planning.', { duration: 7000 }), 500);
 }
 
+/* ---------- mise à jour v3 : palette, regroupements, 7h–23h, style verre clair ---------- */
+if (!state.meta.v3 && !state.meta.needsInitialPlan) {
+  mutate('Mise à jour v3', (s) => {
+    const defs = defaultCategories();
+    const remap = { volley: 'sport', petitdej: 'repas' };
+    for (const k of ['events', 'tasks', 'goals', 'habits']) for (const x of s[k]) if (remap[x.catId]) x.catId = remap[x.catId];
+    s.events = s.events.filter((e) => e.catId !== 'libre');
+    const keep = s.categories.filter((c) => !['volley', 'petitdej', 'libre'].includes(c.id));
+    for (const c of keep) {
+      const d = defs.find((x) => x.id === c.id);
+      if (d) { c.color = d.color; if (['sport', 'bde', 'cours', 'visio'].includes(c.id)) c.name = d.name; c.group = d.group; }
+    }
+    const order = defs.map((c) => c.id);
+    keep.sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
+    for (const d of defs) if (!keep.some((c) => c.id === d.id)) keep.push(d);
+    s.categories = keep;
+    s.settings.hiddenCats = s.settings.hiddenCats.filter((id) => keep.some((c) => c.id === id));
+    Object.assign(s.settings, { dayEnd: 23, bufferPerDay: 0, visualStyle: 'glass-light', weekRoutines: 'thin' });
+    // redistribue le temps des anciennes marges (semaine en cours et suivantes)
+    const today = startOfWeek(new Date());
+    const lastImport = s.events.filter((e) => e.source === 'import').map((e) => e.start).sort().pop();
+    const end = lastImport ? startOfWeek(parseD(lastImport.slice(0, 10))) : today;
+    for (let w = today, n = 0; w <= end && n < 8; w = addDays(w, 7), n++) applyPlan(s, planWeek(s, w));
+    s.meta.v3 = true;
+  }, { undoable: false });
+  setTimeout(() => toast('Nouveau style : verre clair, nouvelles couleurs, catégories regroupées, journée de 7h à 23h.', { duration: 7000 }), 900);
+}
+
 /* ---------- thème ---------- */
 const mq = window.matchMedia('(prefers-color-scheme: dark)');
 function applyTheme() {
   const t = state.settings.theme;
-  const dark = t === 'dark' || (t === 'auto' && mq.matches);
+  const vs = state.settings.visualStyle || 'classic';
+  document.documentElement.dataset.style = vs;
+  const dark = vs === 'glass-dark' || (vs !== 'glass-light' && vs !== 'glass-soft' && (t === 'dark' || (t === 'auto' && mq.matches)));
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   document.querySelectorAll('meta[name=theme-color]').forEach((m) => m.setAttribute('content', dark ? '#16171a' : '#ffffff'));
 }
@@ -260,7 +291,7 @@ function renderToday() {
   const revDone = weekOcc.filter((o) => o.catId === 'revision' && o.end <= now && !o.ev.skipped).reduce((t, o) => t + diffMin(o.start, o.end), 0);
   const sportAll = weekOcc.filter((o) => o.catId === 'sport');
   const tasksWeek = s.tasks.filter((t) => t.due && t.due >= fmtD(ws) && t.due < fmtD(we));
-  const backupOld = !syncConfigured() && Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
+  /* v3 */ const backupOld = !syncConfigured() && Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
 
   // tâches prioritaires
   const P = { 'élevée': 0, 'moyenne': 1, 'faible': 2 };
@@ -507,6 +538,8 @@ function renderSettings() {
         ${F('Début de journée (h)', inp('settings.dayStart', 'number', 'min="0" max="12"'))}
         ${F('Fin de journée (h)', inp('settings.dayEnd', 'number', 'min="13" max="24"'))}
         ${F('Hauteur d’une heure (px)', inp('settings.hourHeight', 'number', 'min="30" max="120" step="2"'))}
+        ${F('Style visuel', `<select data-set="settings.visualStyle" data-type="str">${[['classic', 'Classique'], ['glass-light', 'Verre clair (liquid glass)'], ['glass-dark', 'Verre sombre (liquid glass)'], ['glass-soft', 'Doux et aéré']].map(([k, l]) => `<option value="${k}" ${(st.visualStyle || 'classic') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+        ${F('Routines dans la semaine', `<select data-set="settings.weekRoutines" data-type="str">${[['full', 'Affichées en entier'], ['thin', 'Fines barres (semaine aérée)']].map(([k, l]) => `<option value="${k}" ${(st.weekRoutines || 'full') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
         ${F('Thème', `<select data-set="settings.theme" data-type="str">${[['auto', 'Automatique (système)'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, l]) => `<option value="${k}" ${st.theme === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
       </div>
       <label class="check-line" style="margin-top:12px">${inp('settings.fitScreen', 'checkbox')} Afficher toute la journée dans l’écran, sans défiler (la hauteur des heures s’adapte)</label>
@@ -545,7 +578,6 @@ function renderSettings() {
         ${F('Bloc de révision max (min)', inp('settings.studyBlockMax', 'number', 'min="30" step="15"'))}
         ${F('Bloc de révision min (min)', inp('settings.studyBlockMin', 'number', 'min="15" step="15"'))}
         ${F('Pause entre deux blocs (min)', inp('settings.pauseMin', 'number', 'min="0" step="5"'))}
-        ${F('Marge imprévus / jour (min)', inp('settings.bufferPerDay', 'number', 'min="0" step="15"'))}
         ${F('Max cours + travail / jour (min)', inp('settings.maxWorkPerDay', 'number', 'min="60" step="30"'))}
         ${F('Objectif sommeil (min)', inp('settings.sleepTarget', 'number', 'min="300" step="15"'))}
         ${F('Objectifs perso en semaine', persoW('weekday'))}
@@ -604,7 +636,7 @@ function renderSettings() {
   view.querySelectorAll('[data-catdel]').forEach((b) => (b.onclick = async () => {
     const id = b.dataset.catdel; const c = catById(s, id);
     const used = s.events.filter((e) => e.catId === id).length + s.tasks.filter((t) => t.catId === id).length;
-    const fallback = s.categories.find((x) => x.group === c.group && x.id !== id) || s.categories.find((x) => x.id === 'libre');
+    const fallback = s.categories.find((x) => x.group === c.group && x.id !== id) || s.categories.find((x) => x.id === 'sorties') || s.categories[0];
     if (!(await confirmDialog(`Supprimer « ${esc(c.name)} » ?${used ? ` ${used} élément(s) passeront dans « ${esc(fallback.name)} ».` : ''}`, { ok: 'Supprimer', danger: true }))) return;
     mutate('Supprimer catégorie', (s2) => {
       s2.categories = s2.categories.filter((x) => x.id !== id);

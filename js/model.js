@@ -1,7 +1,8 @@
 // Modèle : catégories, récurrences, conflits, créneaux libres
 import { parseDT, parseD, fmtD, fmtDT, addDays, dayStart, diffDays, isoDow, diffMin, startOfWeek, subtractIntervals, atMin, hm2min, isWeekend } from './util.js';
 
-export const catById = (s, id) => s.categories.find((c) => c.id === id) || s.categories.find((c) => c.id === 'libre') || { id: '?', name: '?', color: '#888', group: 'libre' };
+const UNKNOWN = { id: '?', name: 'Sans catégorie', color: '#AEAEB2', group: 'autre' };
+export const catById = (s, id) => s.categories.find((c) => c.id === id) || UNKNOWN;
 export const subjectById = (s, id) => (id ? s.subjects.find((x) => x.id === id) : null);
 export const groupRank = (s, group) => { const i = s.settings.groupOrder.indexOf(group); return i < 0 ? 99 : i; };
 export const eventColor = (s, ev) => catById(s, ev.catId).color;

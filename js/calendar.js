@@ -77,14 +77,19 @@ export function renderGrid(root, ui, app, pass = 0) {
       <div class="load" title="Remplissage de la journée"><i style="width:${Math.round(load * 100)}%"></i></div></div>`;
   }).join('');
   const hours = [...Array(E - H)].map((_, i) => `<div>${i === 0 ? '' : `${String(H + i).padStart(2, '0')}:00`}</div>`).join('');
+  const airy = st.weekRoutines === 'thin' && days.length > 1;
+  const isRoutine = (o) => ['sommeil', 'repas', 'menage', 'libre'].includes(catById(s, o.catId).group) || o.title === 'Écriture de paroles';
   const cols = days.map((d, di) => {
     const a = atMin(d, H * 60), b = atMin(d, E * 60);
-    const items = occs.filter((o) => visible(o) && o.end > a && o.start < b).map((o) => {
+    const all = occs.filter((o) => visible(o) && o.end > a && o.start < b).map((o) => {
       const s0 = Math.max(0, diffMin(a, o.start)), e0 = Math.min((E - H) * 60, diffMin(a, o.end));
       return { o, s: s0, e: Math.max(e0, s0 + 10) };
     });
+    const routines = airy ? all.filter((it) => isRoutine(it.o)) : [];
+    const items = airy ? all.filter((it) => !isRoutine(it.o)) : all;
     const laid = layoutColumns(items);
-    const evs = laid.map(({ o, s: s0, e: e0, col, ncol }) => evHtml(o, s0, e0, col, ncol, hourH, conf.has(o.key), di)).join('');
+    const bars = routines.map(({ o, s: s0, e: e0 }) => `<div class="ev rbar" data-key="${esc(o.key)}" style="--c:${catById(s, o.catId).color};top:${(s0 / 60) * hourH + 1}px;height:${Math.max(3, ((e0 - s0) / 60) * hourH - 2)}px" title="${esc(o.title)} · ${fmtTime(o.start)} – ${fmtTime(o.end)}"></div>`).join('');
+    const evs = bars + laid.map(({ o, s: s0, e: e0, col, ncol }) => evHtml(o, s0, e0, col, ncol, hourH, conf.has(o.key), di, airy)).join('');
     let now = '';
     if (sameDay(d, today)) {
       const m = minOfDay(today) - H * 60;
@@ -119,13 +124,14 @@ export function renderGrid(root, ui, app, pass = 0) {
   attachInteractions(scroller, days, occs, hourH, app, ui);
 }
 
-function evHtml(o, s0, e0, col, ncol, hourH, conflict, di) {
+function evHtml(o, s0, e0, col, ncol, hourH, conflict, di, airy = false) {
   const s = state;
   const cat = catById(s, o.catId);
   const subj = subjectById(s, o.subjectId);
-  const top = (s0 / 60) * hourH, h = Math.max(15, ((e0 - s0) / 60) * hourH - 2);
+  const top = (s0 / 60) * hourH + (airy ? 1.5 : 0), h = Math.max(13, ((e0 - s0) / 60) * hourH - (airy ? 3 : 2));
   const short = h < 34;
-  const left = `calc(${(col / ncol) * 100}% + 2px)`, width = `calc(${100 / ncol}% - 4px)`;
+  const left = airy ? `calc(6px + ${col / ncol} * (100% - 8px))` : `calc(${(col / ncol) * 100}% + 2px)`;
+  const width = airy ? `calc((100% - 8px) / ${ncol} - ${ncol > 1 ? 2 : 0}px)` : `calc(${100 / ncol}% - 4px)`;
   const cls = ['ev', isDone(o) ? 'done' : '', h < 13 ? 'tiny' : '', short ? 'short' : '', o.ev.source === 'auto' ? 'auto' : '', isSoft(s, o) ? 'soft' : '', o.ev.skipped ? 'skipped' : '', conflict ? 'conflict' : ''].join(' ');
   const time = `${fmtTime(o.start)} – ${fmtTime(o.end)}`;
   const pin = o.ev.pinned ? '<span class="pin" title="Épinglé">📌</span>' : '';

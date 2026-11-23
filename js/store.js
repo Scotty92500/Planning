@@ -19,7 +19,7 @@ function migrate(s) {
   s.settings.work = { ...d.work, ...(s.settings.work || {}) };
   s.settings.perso = { ...d.perso, ...(s.settings.perso || {}) };
   for (const k of ['categories', 'subjects', 'habits', 'goals', 'tasks', 'events']) if (!Array.isArray(s[k])) s[k] = [];
-  for (const id of ['libre', 'examen']) if (!s.categories.find((c) => c.id === id)) s.categories.push(defaultCategories().find((c) => c.id === id));
+  for (const id of ['examen']) if (!s.categories.find((c) => c.id === id)) s.categories.push(defaultCategories().find((c) => c.id === id));
   s.meta = s.meta || { createdAt: Date.now() };
   s.tombs = s.tombs || {};
   s.version = 1;
@@ -111,6 +111,7 @@ export function mergeStates(a, b) {
   if ((b.meta.settingsU || 0) > (a.meta.settingsU || 0)) { out.settings = b.settings; out.meta.settingsU = b.meta.settingsU; }
   out.meta.needsInitialPlan = !!(a.meta.needsInitialPlan && b.meta.needsInitialPlan);
   out.meta.v2 = !!(a.meta.v2 || b.meta.v2);
+  out.meta.v3 = !!(a.meta.v3 || b.meta.v3);
   out.meta.updatedAt = Math.max(a.meta.updatedAt || 0, b.meta.updatedAt || 0);
   return out;
 }
