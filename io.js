@@ -52,6 +52,8 @@ export function parseICS(text) {
     else if (name === 'TITLE') cur.title = unesc(val);
     else if (name === 'TYPECOURS') cur.type = unesc(val);
     else if (name === 'NOTES') cur.notes = unesc(val);
+    else if (name === 'FLAGPRESENTIEL') cur.flag = val.toLowerCase();
+    else if (name === 'SITE') cur.site = unesc(val);
   }
   const events = [];
   let skipped = 0;
@@ -62,7 +64,8 @@ export function parseICS(text) {
     let title = (e.summary || 'Cours').replace(/\s+/g, ' ').replace(/^\[[^\]]*\]\s*/, '');
     let kind = '';
     if (e.title) { // format De Vinci : champs TITLE et TYPECOURS
-      events.push({ title: e.title.trim(), kind: (e.type || '').trim(), start: fmtDTlocal(st), end: fmtDTlocal(en), location: e.location || '', notes: e.notes || '', recurring: !!e.rrule });
+      const visio = e.flag === 'distanciel' || (e.site || '').trim() === 'Online';
+      events.push({ title: e.title.trim(), kind: (e.type || '').trim(), start: fmtDTlocal(st), end: fmtDTlocal(en), location: e.location || '', notes: e.notes || '', recurring: !!e.rrule, ...(visio ? { visio: true } : {}) });
       continue;
     }
     title = title.replace(/\]\s*[A-ZÉÈ][^\[\]]*$/, ']'); // retire le nom du prof après [TD]
@@ -93,6 +96,8 @@ export function parseImport(text) {
 }
 
 const SPORT_KINDS = ['SP'];
+/** cours à distance : flag du .ics, lieu ZOOM/Teams/en ligne, ou type « o » (CMo, CAo…) */
+export const isVisio = (e, kind = '') => !!e.visio || /zoom|teams|online|en ligne|distanciel|visio/i.test(e.location || '') || /^[A-Z]{2}o$/.test(kind);
 
 /** Trouve ou crée la matière d'un cours */
 const tokPrefix = (a, b) => { const A = a.split(' ').filter((w) => w.length > 2), B = b.split(' '); return A.length > 0 && A.every((w) => B.some((x) => x.startsWith(w) || w.startsWith(x) && x.length > 3)); };
@@ -132,7 +137,7 @@ export function applyCourses(state, events, replace = true) {
     const title = kind ? `${e.title} [${kind}]` : e.title;
     if (!replace && state.events.some((x) => x.source === 'import' && x.title === title && x.start === e.start)) continue;
     state.events.push({
-      id: uid(), title, catId: sport ? 'sport' : exam ? 'examen' : 'cours', subjectId: sport ? '' : matchSubject(state, e.title),
+      id: uid(), title, catId: sport ? 'sport' : exam ? 'examen' : isVisio(e, kind) ? 'visio' : 'cours', subjectId: sport ? '' : matchSubject(state, e.title),
       start: e.start.slice(0, 16), end: e.end.slice(0, 16), location: e.location || '', notes: e.notes || '', source: 'import',
     });
     added++;

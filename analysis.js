@@ -70,7 +70,7 @@ export function weekReport(s, ws) {
 
   // 4. Sport
   const sportHabit = s.habits.find((h) => h.enabled && h.catId === 'sport' && h.type === 'weekly');
-  const muscu = inWeek.filter((o) => o.catId === 'sport' && o.ev.source !== 'import').length;
+  const muscu = inWeek.filter((o) => o.title === (sportHabit ? sportHabit.title : 'Musculation')).length;
   const target = sportHabit ? sportHabit.times : 3;
   if (muscu < target) items.push({ level: 'warn', title: `Sport : ${muscu}/${target} séances de musculation`, detail: 'Il manque des séances (en plus du sport du vendredi).', action: 'plan' });
   else items.push({ level: 'ok', title: `Sport : ${muscu} séances de musculation`, detail: '' });
@@ -92,7 +92,7 @@ export function weekReport(s, ws) {
   // 7. Surcharge
   const heavy = [];
   for (const d of days) {
-    const work = onDay(d, (o) => ['cours', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
+    const work = onDay(d, (o) => ['cours', 'visio', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
     if (work > st.maxWorkPerDay) heavy.push(`${DOW_LONG[isoDow(d)]} (${fmtDur(work)})`);
   }
   if (heavy.length) items.push({ level: 'warn', title: 'Journées surchargées', detail: `Plus de ${fmtDur(st.maxWorkPerDay)} de cours + travail : ${heavy.join(', ')}.`, action: 'settings' });
@@ -106,7 +106,7 @@ export function weekReport(s, ws) {
   if (cf.length) items.push({ level: 'bad', title: `${cf.length} conflit(s) d'horaires`, detail: cf.slice(0, 4).map(([a, b]) => `« ${a.title} » / « ${b.title} »`).join(' · '), action: 'conflicts' });
 
   // 10. Rangement, batch cooking
-  for (const h of s.habits.filter((h) => h.enabled && ['menage', 'repas'].includes(catById(s, h.catId).group) && h.type === 'weekly')) {
+  for (const h of s.habits.filter((h) => h.enabled && ['menage', 'repas'].includes(catById(s, h.catId).group) && ['weekly', 'with'].includes(h.type))) {
     if (!inWeek.some((o) => o.title === h.title)) items.push({ level: 'warn', title: `« ${h.title} » absent cette semaine`, detail: '', action: 'plan' });
   }
 

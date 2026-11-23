@@ -1,7 +1,8 @@
 // Modèle : catégories, récurrences, conflits, créneaux libres
 import { parseDT, parseD, fmtD, fmtDT, addDays, dayStart, diffDays, isoDow, diffMin, startOfWeek, subtractIntervals, atMin, hm2min, isWeekend } from './util.js';
 
-export const catById = (s, id) => s.categories.find((c) => c.id === id) || s.categories.find((c) => c.id === 'libre') || { id: '?', name: '?', color: '#888', group: 'libre' };
+const UNKNOWN = { id: '?', name: 'Sans catégorie', color: '#AEAEB2', group: 'autre' };
+export const catById = (s, id) => s.categories.find((c) => c.id === id) || UNKNOWN;
 export const subjectById = (s, id) => (id ? s.subjects.find((x) => x.id === id) : null);
 export const groupRank = (s, group) => { const i = s.settings.groupOrder.indexOf(group); return i < 0 ? 99 : i; };
 export const eventColor = (s, ev) => catById(s, ev.catId).color;
@@ -48,6 +49,8 @@ function occ(ev, start, end, occDate) {
 
 export const weekRange = (d) => { const a = startOfWeek(d); return [a, addDays(a, 7)]; };
 export const isSoft = (s, o) => catById(s, o.catId).group === 'libre';
+/** catégorie « en parallèle » (ex. lessive pendant la muscu) : jamais en conflit, ne bloque pas un créneau */
+export const isParallel = (s, o) => !!catById(s, o.catId).parallel;
 
 /** Colonnes pour affichage côte à côte des chevauchements (pour un jour) */
 export function layoutColumns(items) {
@@ -74,7 +77,7 @@ export function layoutColumns(items) {
 
 /** Paires d'événements qui se chevauchent */
 export function conflicts(s, occs) {
-  const hard = occs.filter((o) => !isSoft(s, o) && !o.ev.skipped);
+  const hard = occs.filter((o) => !isSoft(s, o) && !isParallel(s, o) && !o.ev.skipped);
   const pairs = [];
   for (let i = 0; i < hard.length; i++) {
     for (let j = i + 1; j < hard.length; j++) {
@@ -114,7 +117,7 @@ export function findFreeSlot(s, dur, from, until) {
   const limit = until || addDays(from, 21);
   for (let d = dayStart(from); d < limit; d = addDays(d, 1)) {
     const occs = expand(s, d, addDays(d, 1));
-    const busy = busyIntervals(occs.filter((o) => !isSoft(s, o)));
+    const busy = busyIntervals(occs.filter((o) => !isSoft(s, o) && !isParallel(s, o)));
     for (const win of [workWindow(s, d), ['08:00', '22:00']]) {
       for (const [fs, fe] of freeInWindow(busy, d, win)) {
         const start = Math.max(fs, Math.ceil(from.getTime() / 900000) * 900000);

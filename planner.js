@@ -1,7 +1,7 @@
 // Organisation intelligente de la semaine
 // Ordre : événements fixes conservés → habitudes (par priorité de catégorie) → siestes → objectifs perso → révisions
 import { uid, addDays, atMin, hm2min, fmtDT, fmtD, isoDow, isWeekend, diffMin, parseD, dayStart } from './util.js';
-import { expand, catById, groupRank, freeInWindow, workWindow, subjectById } from './model.js';
+import { expand, catById, groupRank, freeInWindow, workWindow, subjectById, isParallel } from './model.js';
 
 const FERIES = ['01-01', '05-01', '05-08', '07-14', '08-15', '11-01', '11-11', '12-25'];
 const isFerie = (d) => FERIES.includes(fmtD(d).slice(5));
@@ -32,12 +32,12 @@ function ctx(s, weekStart, { keepAuto = false } = {}) {
   const isRemovable = (o) => !keepAuto && o.ev.source === 'auto' && !o.ev.pinned && !o.ev.recur && o.start >= ws && o.start < we;
   const kept = occs.filter((o) => !isRemovable(o));
   const removed = [...new Set(occs.filter(isRemovable).map((o) => o.ev.id))];
-  const busy = kept.map((o) => [o.start.getTime(), o.end.getTime()]);
+  const busy = kept.filter((o) => !isParallel(s, o)).map((o) => [o.start.getTime(), o.end.getTime()]);
   const days = [...Array(7)].map((_, i) => addDays(ws, i));
   const created = [];
-  const place = (ev) => {
+  const place = (ev, parallel = false) => {
     created.push(ev);
-    busy.push([ev._s.getTime(), ev._e.getTime()]);
+    if (!parallel) busy.push([ev._s.getTime(), ev._e.getTime()]);
   };
   const hasSimilar = (day, title, catId) => kept.some((o) => fmtD(o.start) === fmtD(day) && o.title === title && o.catId === catId);
   return { ws, we, kept, removed, busy, days, created, place, hasSimilar };
@@ -97,7 +97,7 @@ function subtract(free, busy) {
 }
 
 function planHabits(s, c, warnings) {
-  const habits = s.habits.filter((h) => h.enabled);
+  const habits = s.habits.filter((h) => h.enabled && h.type !== 'with');
   const sorted = [...habits].sort((x, y) => groupRank(s, catById(s, x.catId).group) - groupRank(s, catById(s, y.catId).group) || (x.type === 'fixed' ? -1 : 1));
   for (const h of sorted) {
     if (h.type === 'weekly') {
@@ -123,6 +123,24 @@ function planHabits(s, c, warnings) {
     }
   }
 }
+/** habitude faite en même temps qu'une autre (ex. lessive pendant la musculation) */
+function planWithHabits(s, c, warnings) {
+  for (const h of s.habits.filter((x) => x.enabled && x.type === 'with')) {
+    const already = c.kept.filter((o) => o.title === h.title && o.catId === h.catId && o.start >= c.ws && o.start < c.we).length;
+    let need = (h.times || 1) - already;
+    if (need <= 0) continue;
+    const hosts = [...c.kept.map((o) => ({ title: o.title, s: o.start })), ...c.created.map((e) => ({ title: e.title, s: e._s }))]
+      .filter((o) => o.title === h.with && o.s >= c.ws && o.s < c.we && (h.days || [1, 2, 3, 4, 5, 6, 7]).includes(isoDow(o.s)))
+      .sort((a, b) => a.s - b.s);
+    for (const host of hosts) {
+      if (need <= 0) break;
+      c.place(mk(h.title, h.catId, host.s, new Date(host.s.getTime() + h.duration * 60000), { habitId: h.id, notes: h.note || '' }), !!catById(s, h.catId).parallel);
+      need--;
+    }
+    if (need > 0) warnings.push(`« ${h.title} » : pas de séance « ${h.with} » cette semaine pour la caser.`);
+  }
+}
+
 function placeHabitWeekly(c, h, day) {
   const [a, b] = habitWindow(h, day);
   const free = subtract([[atMin(day, a).getTime(), atMin(day, b).getTime()]], c.busy);
@@ -234,7 +252,7 @@ function planStudy(s, c, warnings) {
     const win = workWindow(s, day);
     const a = atMin(day, hm2min(win[0])).getTime(), b = atMin(day, hm2min(win[1])).getTime();
     // budget de travail du jour (cours + révisions)
-    const courseMin = c.kept.filter((o) => fmtD(o.start) === fmtD(day) && ['cours', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
+    const courseMin = c.kept.filter((o) => fmtD(o.start) === fmtD(day) && ['cours', 'visio', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
     let budget = st.maxWorkPerDay - courseMin;
     let free = subtract([[a, b]], c.busy);
     // marge pour les imprévus (en semaine)
@@ -285,6 +303,7 @@ export function planWeek(s, weekStart) {
   const c = ctx(s, weekStart);
   const warnings = [];
   planHabits(s, c, warnings);
+  planWithHabits(s, c, warnings);
   planNaps(s, c);
   planGoals(s, c, s.goals.filter((g) => g.active !== false && g.weeklyMinutes > 0 && (!g.due || parseD(g.due) >= c.ws)));
   planStudy(s, c, warnings);
