@@ -37,10 +37,10 @@ export function defaultCategories() {
     C('visio', 'Cours en visio', '#FF9500', 'etudes'),
     C('examen', 'Examens & CC', '#FF3B30', 'etudes'),
     C('revision', 'Travail perso & révisions', '#FF1493', 'etudes'),
-    C('dessin', 'Dessin / manga', '#AF52DE', 'perso'),
-    C('musique', 'Musique / prods', '#5856D6', 'perso'),
-    C('video', 'Montage vidéo', '#32ADE6', 'perso'),
-    C('sport', 'Sport, muscu & volley', '#00C7BE', 'sport'),
+    { ...C('dessin', 'Dessin / manga', '#AF52DE', 'perso'), weeklyTarget: 210 },
+    { ...C('musique', 'Musique / prods', '#5856D6', 'perso'), weeklyTarget: 315 },
+    { ...C('video', 'Montage vidéo', '#32ADE6', 'perso'), weeklyTarget: 120 },
+    { ...C('sport', 'Sport, muscu & volley', '#00C7BE', 'sport'), weeklyTarget: 360 },
     C('bde', 'LeoVolley, BDE & asso', '#FFCC00', 'asso'),
     C('sorties', 'Loisirs & sorties', '#A2845E', 'sorties'),
     C('repas', 'Repas', '#C9A86A', 'repas'),
@@ -122,7 +122,7 @@ export function seedRecurring() {
 export function seedState() {
   return {
     version: 1,
-    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true, v2: true, v3: true },
+    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true, v2: true, v3: true, v4: true },
     tombs: {},
     settings: defaultSettings(),
     categories: defaultCategories(),

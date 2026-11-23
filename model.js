@@ -130,3 +130,13 @@ export function findFreeSlot(s, dur, from, until) {
 
 export const isWE = isWeekend;
 export { fmtDT };
+
+/** Une case est « faite » dès qu'elle a commencé, sauf si on l'a décochée (ou cochée en avance) */
+export function isDone(o, now = new Date()) {
+  const ev = o.ev, d = o.occDate;
+  if (ev.skipped) return false;
+  if (d ? (ev.undoneDates || []).includes(d) : ev.undone) return false;
+  if (d ? (ev.doneDates || []).includes(d) : ev.done) return true;
+  return o.start <= now;
+}
+export const isMissed = (o, now = new Date()) => o.start <= now && !isDone(o, now);

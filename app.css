@@ -447,3 +447,43 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .grid.compact .ev { padding: 3px 3px 2px 4px; }
 :root[data-style^="glass"] .grid.compact .ev { padding-left: 4px; padding-right: 2px; }
 @media (max-width: 820px) { :root { --time-w: 30px; } .time-col div { font-size: 9px; padding-right: 2px; } }
+
+/* ===== Bande de couleur intégrée sur le côté de chaque case ===== */
+:root[data-style^="glass"] .ev:not(.rbar), :root[data-style="glass-soft"] .ev:not(.rbar) { padding-left: 9px; }
+:root[data-style="glass-light"] .ev:not(.rbar) { box-shadow: inset 4px 0 0 var(--c), inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.6), 0 4px 14px color-mix(in srgb, var(--c) 18%, transparent); }
+:root[data-style="glass-dark"] .ev:not(.rbar) { box-shadow: inset 4px 0 0 var(--c), inset 0 1px 0 rgba(255,255,255,.18), inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent) !important; }
+:root[data-style="glass-soft"] .ev:not(.rbar) { box-shadow: inset 4px 0 0 var(--c); }
+:root[data-style^="glass"] .grid.compact .ev:not(.rbar), :root[data-style="glass-soft"] .grid.compact .ev:not(.rbar) { padding-left: 6px; }
+:root[data-style="glass-light"] .grid.compact .ev:not(.rbar) { box-shadow: inset 3px 0 0 var(--c), inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.6); }
+:root[data-style="glass-dark"] .grid.compact .ev:not(.rbar) { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent) !important; }
+:root[data-style="glass-soft"] .grid.compact .ev:not(.rbar) { box-shadow: inset 3px 0 0 var(--c); }
+:root[data-style="glass-light"] .ev.conflict, :root[data-style="glass-soft"] .ev.conflict { box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 2px var(--danger) !important; }
+.ev.done { opacity: .72; }
+.ev.done .t::before { content: "✓ "; color: var(--ok); }
+.ev.missed { outline: 1.5px dashed var(--danger); outline-offset: -1.5px; }
+.ev.missed .t::before { content: "✕ "; color: var(--danger); }
+/* check-liste : décoché = rouge */
+.cl-row.missed .cl-chk, .tl-item.missed .cl-chk { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.cl-row.missed .cl-t, .tl-item.missed .t { color: var(--danger); }
+.tl-item.past { opacity: 1; }
+.day-card .tl-item { padding: 7px 4px; }
+.day-card h2 { color: var(--text); }
+/* bilan */
+.stat-row.sub { grid-template-columns: 130px 1fr 74px; padding-left: 16px; font-size: 12px; }
+.stat-row.sub .lbl i { width: 7px; height: 7px; border-radius: 50%; }
+.stat-row .val.under { color: var(--warn); font-weight: 600; }
+/* objectifs : temps visés */
+.tg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2px 18px; }
+.tg-row { display: grid; grid-template-columns: 10px 1fr auto 64px auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.tg-row i { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+.tg-row .tg-n { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-row input { height: 30px; text-align: center; padding: 0 4px; }
+@media (max-width: 820px) { .stat-row.sub { grid-template-columns: 100px 1fr 64px; } .tg-grid { grid-template-columns: 1fr; } }
+
+/* bilan : nom + valeur sur une ligne, barre dessous */
+.stat-row.t2 { grid-template-columns: 1fr auto; grid-template-areas: "lbl val" "bar bar"; gap: 3px 10px; margin-bottom: 10px; }
+.stat-row.t2 .lbl { grid-area: lbl; white-space: normal; }
+.stat-row.t2 .val { grid-area: val; }
+.stat-row.t2 .progress { grid-area: bar; height: 6px; }
+.stat-row.t2.sub { grid-template-columns: 1fr auto; padding-left: 18px; margin-bottom: 7px; }
+.stat-row.t2.sub .progress { height: 4px; }

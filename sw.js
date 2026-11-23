@@ -1,5 +1,5 @@
 // Service worker : l'application fonctionne hors connexion
-const VERSION = 'mon-planning-v3.0.0';
+const VERSION = 'mon-planning-v4.0.0';
 const FILES = ['./', './index.html', './manifest.webmanifest', './css/app.css',
   './js/main.js', './js/store.js', './js/seed.js', './js/util.js', './js/model.js', './js/planner.js', './js/analysis.js',
   './js/io.js', './js/seed-courses.js', './js/calendar.js', './js/editors.js', './js/ui.js', './js/sync.js',

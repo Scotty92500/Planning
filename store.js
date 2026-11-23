@@ -112,6 +112,7 @@ export function mergeStates(a, b) {
   out.meta.needsInitialPlan = !!(a.meta.needsInitialPlan && b.meta.needsInitialPlan);
   out.meta.v2 = !!(a.meta.v2 || b.meta.v2);
   out.meta.v3 = !!(a.meta.v3 || b.meta.v3);
+  out.meta.v4 = !!(a.meta.v4 || b.meta.v4);
   out.meta.updatedAt = Math.max(a.meta.updatedAt || 0, b.meta.updatedAt || 0);
   return out;
 }

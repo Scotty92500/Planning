@@ -1,7 +1,7 @@
 // Vues calendrier : jour / 3 jours / semaine (grille avec glisser-déposer), mois, liste
 import { state, mutate } from './store.js';
 import { esc, addDays, dayStart, startOfWeek, startOfMonth, fmtD, fmtDT, fmtTime, isoDow, isWeekend, DOW_SHORT, atMin, minOfDay, snap, clamp, diffMin, sameDay, fmtDayLong, parseD, fmtDur } from './util.js';
-import { expand, catById, subjectById, layoutColumns, conflictKeys, isSoft } from './model.js';
+import { expand, catById, subjectById, layoutColumns, conflictKeys, isSoft, isDone, isMissed } from './model.js';
 import { toast } from './ui.js';
 
 const STEP = 15;
@@ -35,19 +35,41 @@ export function shiftCursor(ui, dir) {
 const visible = (o) => !state.settings.hiddenCats.includes(o.catId);
 
 /* ===================== GRILLE ===================== */
-/** état « fait » d'une occurrence (coche de la vue Jour) */
-export const isDone = (o) => (o.occDate ? (o.ev.doneDates || []).includes(o.occDate) : !!o.ev.done);
+export { isDone } from './model.js';
+/** Coche / décoche. Décocher une case déjà commencée crée une tâche « Rattraper … » */
 export function toggleDone(o) {
+  const now = new Date();
+  const wasDone = isDone(o, now);
+  const started = o.start <= now;
+  let createdTask = null;
   mutate('Coché', (s) => {
     const ev = s.events.find((x) => x.id === o.ev.id);
     if (!ev) return;
-    if (o.occDate) {
-      const set = new Set(ev.doneDates || []);
-      set.has(o.occDate) ? set.delete(o.occDate) : set.add(o.occDate);
-      ev.doneDates = [...set];
-    } else if (ev.done) delete ev.done;
-    else ev.done = true;
+    const d = o.occDate;
+    const setFlag = (list, single, on) => {
+      if (d) { const set = new Set(ev[list] || []); on ? set.add(d) : set.delete(d); ev[list] = [...set]; if (!ev[list].length) delete ev[list]; }
+      else if (on) ev[single] = true; else delete ev[single];
+    };
+    if (wasDone) {
+      setFlag('doneDates', 'done', false);
+      if (started) {
+        setFlag('undoneDates', 'undone', true);
+        if (!s.tasks.some((t) => t.fromEvent === o.key)) {
+          const cat = ['cours', 'visio', 'examen'].includes(o.catId) ? 'revision' : o.catId;
+          const title = o.title.replace(/\s*\[[^\]]+\]\s*$/, '');
+          createdTask = { id: Math.random().toString(36).slice(2, 10), title: `Rattraper : ${title}`, due: fmtD(now), priority: 'moyenne', estimate: Math.max(15, diffMin(o.start, o.end)), catId: cat, subjectId: o.subjectId || '', status: 'à faire', notes: `Pas fait le ${fmtDayLong(o.start)} (${fmtTime(o.start)} – ${fmtTime(o.end)}).`, fromEvent: o.key };
+          s.tasks.push(createdTask);
+        }
+      }
+      delete ev.skipped;
+    } else {
+      setFlag('undoneDates', 'undone', false);
+      delete ev.skipped;
+      if (!started) setFlag('doneDates', 'done', true);
+      s.tasks = s.tasks.filter((t) => !(t.fromEvent === o.key && t.status !== 'terminé'));
+    }
   }, { undoable: false });
+  if (createdTask) toast(`Ajouté aux tâches : ${createdTask.title}`);
 }
 
 let headCache = 0;
@@ -132,7 +154,7 @@ function evHtml(o, s0, e0, col, ncol, hourH, conflict, di, airy = false) {
   const short = h < 34;
   const left = airy ? `calc(6px + ${col / ncol} * (100% - 8px))` : `calc(${(col / ncol) * 100}% + 2px)`;
   const width = airy ? `calc((100% - 8px) / ${ncol} - ${ncol > 1 ? 2 : 0}px)` : `calc(${100 / ncol}% - 4px)`;
-  const cls = ['ev', isDone(o) ? 'done' : '', h < 13 ? 'tiny' : '', short ? 'short' : '', o.ev.source === 'auto' ? 'auto' : '', isSoft(s, o) ? 'soft' : '', o.ev.skipped ? 'skipped' : '', conflict ? 'conflict' : ''].join(' ');
+  const cls = ['ev', isDone(o) && o.end <= new Date() ? 'done' : '', isMissed(o) ? 'missed' : '', h < 13 ? 'tiny' : '', short ? 'short' : '', o.ev.source === 'auto' ? 'auto' : '', isSoft(s, o) ? 'soft' : '', o.ev.skipped ? 'skipped' : '', conflict ? 'conflict' : ''].join(' ');
   const time = `${fmtTime(o.start)} – ${fmtTime(o.end)}`;
   const pin = o.ev.pinned ? '<span class="pin" title="Épinglé">📌</span>' : '';
   const rec = o.ev.recur ? ' ↻' : '';
@@ -411,7 +433,7 @@ export function renderChecklist(root, ui, app) {
     const loc = (o.ev.location || '').replace(/\s*\(\d+\)/g, '').replace(/--/g, '-');
     const cur = isToday && o.start <= now && o.end > now;
     const past = isToday && o.end <= now;
-    rows += `<div class="cl-row ${isDone(o) ? 'done' : ''} ${cur ? 'cur' : ''} ${past && !isDone(o) ? 'past' : ''}" data-key="${esc(o.key)}" style="--c:${cat.color}">
+    rows += `<div class="cl-row ${isDone(o) ? 'done' : ''} ${cur ? 'cur' : ''} ${isMissed(o) ? 'missed' : ''}" data-key="${esc(o.key)}" style="--c:${cat.color}">
       <button class="cl-chk" data-done="${esc(o.key)}" aria-label="Fait">${isDone(o) ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"/></svg>' : ''}</button>
       <span class="cl-time">${fmtTime(o.start).padStart(5, '0')}</span>
       <span class="cl-bar"></span>

@@ -227,6 +227,8 @@ function planStudy(s, c, warnings) {
   const tasks = s.tasks.filter((t) => t.status !== 'terminé' && !t.eventId && t.catId === 'revision' && (t.estimate || 0) >= 15)
     .map((t) => ({ t, left: t.estimate })).sort((a, b) => (a.t.due || '9999').localeCompare(b.t.due || '9999') || (PRIO_W[b.t.priority] - PRIO_W[a.t.priority]));
   const exams = examMap(s);
+  const keptRev = new Map();
+  for (const o of c.kept) if (o.catId === 'revision' && o.subjectId && o.start >= c.ws && o.start < c.we) keptRev.set(o.subjectId, (keptRev.get(o.subjectId) || 0) + diffMin(o.start, o.end));
   const subjects = s.subjects.filter((x) => (x.revise && x.weight > 0) || exams.has(x.id));
   const pickSubject = (day) => {
     let best = null, bs = -1;
@@ -238,6 +240,8 @@ function planStudy(s, c, warnings) {
       }
       const next = (exams.get(sub.id) || []).find((d) => daysTo(d, day) > 0);
       if (next) { const dd = daysTo(next, day); if (dd <= 3) w *= 3; else if (dd <= 14) w *= 2; }
+      const got = (alloc.get(sub.id) || 0) + (keptRev.get(sub.id) || 0);
+      if (sub.weeklyTarget > 0) w *= got < sub.weeklyTarget ? 1 + (sub.weeklyTarget - got) / 60 : 0.25;
       const sc = w / (1 + (alloc.get(sub.id) || 0) / 60) * (sub.id === lastSubj ? 0.45 : 1);
       if (sc > bs) { bs = sc; best = sub; }
     }

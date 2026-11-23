@@ -1,14 +1,14 @@
 // Point d'entrée : navigation, tableau de bord, tâches, objectifs, bilan, réglages
 import { state, load, mutate, subscribe, undo, canUndo, getSaveError, requestPersistence, resetAll } from './store.js';
 import { esc, uid, fmtD, fmtDT, fmtTime, fmtHM, parseD, parseDT, addDays, addMin, dayStart, startOfWeek, startOfMonth, isoDow, sameDay, fmtDayLong, fmtDur, fmtHours, diffMin, DOW_LETTER, MONTHS, MONTHS_SHORT, DOW_SHORT } from './util.js';
-import { expand, catById, subjectById, isSoft, findFreeSlot } from './model.js';
+import { expand, catById, subjectById, isSoft, findFreeSlot, isDone, isMissed } from './model.js';
 import { planWeek, applyPlan } from './planner.js';
 import { weekReport, GROUPS } from './analysis.js';
 import { exportBackup, exportICS, applyCourses, isVisio } from './io.js';
 import { connect, disconnect, syncNow, syncConfigured, syncStatus, onSyncStatus } from './sync.js';
 import { defaultCategories, routineHabits } from './seed.js';
 import { SEED_COURSES } from './seed-courses.js';
-import { renderGrid, renderMonth, renderList, renderChecklist, calTitle, shiftCursor, isDone, toggleDone } from './calendar.js';
+import { renderGrid, renderMonth, renderList, renderChecklist, calTitle, shiftCursor, toggleDone } from './calendar.js';
 import { openEventEditor, openTaskEditor, openGoalEditor, openGoalProposals, openHabitEditor, openPlanDialog, openImportDialog, planTaskAuto, setEditorHooks, catOptions, daysPicker } from './editors.js';
 import { ICON, openModal, toast, confirmDialog, closeAllModals } from './ui.js';
 
@@ -106,6 +106,14 @@ if (!state.meta.v3 && !state.meta.needsInitialPlan) {
     s.meta.v3 = true;
   }, { undoable: false });
   setTimeout(() => toast('Nouveau style : verre clair, nouvelles couleurs, catégories regroupées, journée de 7h à 23h.', { duration: 7000 }), 900);
+}
+
+/* ---------- mise à jour v4 : temps visés par défaut ---------- */
+if (!state.meta.v4 && !state.meta.needsInitialPlan) {
+  mutate('Mise à jour v4', (s) => {
+    for (const d of defaultCategories()) { const c = s.categories.find((x) => x.id === d.id); if (c && d.weeklyTarget && c.weeklyTarget == null) c.weeklyTarget = d.weeklyTarget; }
+    s.meta.v4 = true;
+  }, { undoable: false });
 }
 
 /* ---------- thème ---------- */
@@ -261,87 +269,84 @@ function renderCalendarView() {
 }
 
 /* ===================== AUJOURD'HUI ===================== */
+/** Carte « progression de la semaine » (accueil et bilan) */
+function progressCard(s, ws, we, rep, extraCls = 'span-4') {
+  const now = new Date();
+  const weekOcc = expand(s, ws, we).filter((o) => !o.ev.skipped);
+  const sumDone = (list) => list.filter((o) => isDone(o, now)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
+  const sumAll = (list) => list.reduce((t, o) => t + diffMin(o.start, o.end), 0);
+  const rows = [];
+  const row = (label, color, done, plan, unit = 'h') => rows.push(`<div class="stat-row"><span class="lbl" style="--c:${color}"><i></i>${esc(label)}</span><div class="progress" style="--c:${color}"><i style="width:${plan ? Math.min(100, (done / plan) * 100) : 0}%"></i></div><span class="val">${unit === 'h' ? `${fmtHours(done)} / ${fmtHours(plan)}` : `${done} / ${plan} ${unit}`}</span></div>`);
+  const courses = weekOcc.filter((o) => ['cours', 'visio'].includes(o.catId));
+  row('Cours suivis', catById(s, 'cours').color, sumDone(courses), sumAll(courses));
+  const rev = weekOcc.filter((o) => o.catId === 'revision');
+  row('Révisions', catById(s, 'revision').color, sumDone(rev), sumAll(rev));
+  const sp = weekOcc.filter((o) => o.catId === 'sport');
+  row('Sport', catById(s, 'sport').color, sp.filter((o) => isDone(o, now)).length, sp.length, 'séances');
+  for (const cid of ['dessin', 'musique', 'video']) { const l = weekOcc.filter((o) => o.catId === cid); if (l.length) row(catById(s, cid).name, catById(s, cid).color, sumDone(l), sumAll(l)); }
+  const prod = weekOcc.filter((o) => ['etudes', 'sport', 'perso'].includes(catById(s, o.catId).group));
+  const pct = sumAll(prod) ? Math.round((sumDone(prod) / sumAll(prod)) * 100) : 0;
+  const missed = weekOcc.filter((o) => isMissed(o, now)).length;
+  const tasksWeek = s.tasks.filter((t) => t.due && t.due >= fmtD(ws) && t.due < fmtD(we));
+  return `<div class="card ${extraCls}"><h2>${ws > now ? 'Semaine qui vient' : 'Progression de la semaine'} <span class="pill">${pct}%</span></h2>
+    <div class="progress" style="height:10px;margin-bottom:14px"><i style="width:${pct}%"></i></div>${rows.join('')}
+    <div class="small muted" style="margin-top:6px">${missed ? `<span style="color:var(--danger)">${missed} case(s) décochée(s)</span> · ` : ''}Tâches de la semaine : ${tasksWeek.filter((t) => t.status === 'terminé').length} / ${tasksWeek.length} terminées</div></div>`;
+}
+
 function renderToday() {
   const s = state;
   const now = new Date(), today = dayStart(now);
-  // le dimanche après-midi, on regarde déjà la semaine qui vient
   const ws = planningWeek(), we = addDays(ws, 7);
   ui.dashWeek = ws;
-  const todayOcc = expand(s, today, addDays(today, 1)).filter((o) => !isSoft(s, o));
+  const todayOcc = expand(s, today, addDays(today, 1)).filter((o) => !isSoft(s, o) && sameDay(o.start, today) && !/^sommeil$/i.test(o.title));
   const upcoming = expand(s, now, addDays(now, 7)).filter((o) => !isSoft(s, o) && catById(s, o.catId).group !== 'sommeil' && o.start > now);
-  const current = todayOcc.filter((o) => o.start <= now && o.end > now && catById(s, o.catId).group !== 'sommeil');
+  const current = todayOcc.filter((o) => o.start <= now && o.end > now);
   const next = upcoming[0];
   const rep = weekReport(s, ws);
   const h = now.getHours();
   const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
-
   setTopbar(`${hello} 👋`, `<button class="btn sm hide-m" data-new>${ICON.plus} Événement</button><button class="btn primary sm" data-plan>${ICON.sparkle}<span class="hide-m">Organiser ma semaine</span></button>`);
   topbar.querySelector('[data-plan]').onclick = () => openPlanDialog(ws);
   const nb = topbar.querySelector('[data-new]'); if (nb) nb.onclick = () => fab.onclick();
-
   const rel = (d) => { const m = diffMin(now, d); if (m < 60) return `dans ${m} min`; if (sameDay(d, now)) return `dans ${fmtDur(m)}`; if (sameDay(d, addDays(now, 1))) return `demain à ${fmtTime(d)}`; return `${DOW_SHORT[isoDow(d)]} ${d.getDate()} à ${fmtTime(d)}`; };
-
-  // progression hebdo
-  const prodGroups = ['etudes', 'sport', 'perso'];
-  let pPlan = 0, pDone = 0;
-  for (const g of prodGroups) { pPlan += rep.groups[g]?.planned || 0; pDone += rep.groups[g]?.done || 0; }
-  const pct = pPlan ? Math.round((pDone / pPlan) * 100) : 0;
-  const weekOcc = expand(s, ws, we);
-  const revPlan = weekOcc.filter((o) => o.catId === 'revision').reduce((t, o) => t + diffMin(o.start, o.end), 0);
-  const revDone = weekOcc.filter((o) => o.catId === 'revision' && o.end <= now && !o.ev.skipped).reduce((t, o) => t + diffMin(o.start, o.end), 0);
-  const sportAll = weekOcc.filter((o) => o.catId === 'sport');
-  const tasksWeek = s.tasks.filter((t) => t.due && t.due >= fmtD(ws) && t.due < fmtD(we));
-  /* v3 */ const backupOld = !syncConfigured() && Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
-
-  // tâches prioritaires
+  const backupOld = !syncConfigured() && Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
   const P = { 'élevée': 0, 'moyenne': 1, 'faible': 2 };
   const prio = s.tasks.filter((t) => t.status !== 'terminé').sort((a, b) => P[a.priority] - P[b.priority] || (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 5);
-
-  // temps par catégorie
-  const groups = [...s.settings.groupOrder, 'libre'].filter((g) => rep.groups[g]);
-  const maxG = Math.max(1, ...groups.map((g) => rep.groups[g].planned));
-  const gColor = (g) => (s.categories.find((c) => c.group === g) || {}).color || '#888';
-
   const goals = s.goals.filter((g) => g.active !== false);
-  const issues = rep.items.filter((i) => i.level !== 'ok').slice(0, 5);
+  const issues = rep.items.filter((i) => i.level !== 'ok').slice(0, 4);
+  const doneN = todayOcc.filter((o) => isDone(o, now)).length;
+  let nowPlaced = false;
+  const dayRows = todayOcc.map((o) => {
+    let pre = '';
+    if (!nowPlaced && o.start > now) { pre = `<div class="cl-now" style="margin:4px 0"><span>${fmtTime(now).padStart(5, '0')}</span></div>`; nowPlaced = true; }
+    const km = o.title.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+    const loc = (o.ev.location || '').replace(/\s*\(\d+\)/g, '').replace(/--/g, '-');
+    return pre + `<div class="tl-item ${isDone(o, now) ? 'done' : ''} ${isMissed(o, now) ? 'missed' : ''} ${o.start <= now && o.end > now ? 'now' : ''}" data-key="${esc(o.key)}" style="--c:${catById(s, o.catId).color}"><button class="cl-chk sm" data-done="${esc(o.key)}">${isDone(o, now) ? ICON.tick : ''}</button><span class="h">${fmtTime(o.start).padStart(5, '0')}</span><span class="b"></span><div><div class="t">${km ? `<span class="cl-k">(${esc(km[2])})</span> ${esc(km[1])}` : esc(o.title)}</div><div class="s">${fmtTime(o.start)} – ${fmtTime(o.end)}${loc ? ' · ' + esc(loc) : ''}</div></div></div>`;
+  }).join('') + (!nowPlaced && todayOcc.length ? `<div class="cl-now" style="margin:4px 0"><span>${fmtTime(now).padStart(5, '0')}</span></div>` : '');
 
   view.innerHTML = `<div class="page">
     ${backupOld ? `<div class="banner" style="margin:0 0 14px">☁️ Active la synchronisation pour retrouver ton planning sur ton PC et ton téléphone.<button class="btn sm primary" data-gosync style="margin-left:auto">Activer</button></div>` : ''}
-    <div class="page-head"><div><h1 style="text-transform:capitalize">${fmtDayLong(now)}</h1><p>${todayOcc.filter((o) => catById(s, o.catId).group === 'etudes').length} créneaux d’études aujourd’hui · ${rep.conflicts.length ? `<span style="color:var(--danger)">${rep.conflicts.length} conflit(s) cette semaine</span>` : 'aucun conflit cette semaine'}</p></div></div>
     <div class="cards">
-      <div class="card span-4 next-card">
+      <div class="card span-7 day-card">
+        <h2><span><span style="color:var(--text);font-size:16px;text-transform:capitalize">${fmtDayLong(now)}</span> · <span class="cl-clock">${fmtTime(now).padStart(5, '0')}</span></span><span class="pill">${doneN}/${todayOcc.length} faits</span></h2>
+        <div class="progress" style="margin:-4px 0 10px"><i style="width:${todayOcc.length ? (doneN / todayOcc.length) * 100 : 0}%"></i></div>
+        <div class="tl" style="max-height:none">${todayOcc.length ? dayRows : '<div class="empty">Journée libre.</div>'}</div>
+        <div class="small faint" style="margin-top:8px">Ce qui a commencé est coché automatiquement. Décoche ce que tu n’as pas fait : une tâche « Rattraper » est créée.</div>
+      </div>
+      <div class="card span-5 next-card">
         <h2>${current.length ? 'En ce moment' : 'Prochain événement'}</h2>
-        ${current.length ? current.map((o) => `<div class="when">jusqu’à ${fmtTime(o.end)}</div><div class="big">${esc(o.title)}</div><div class="progress" style="--c:${catById(s, o.catId).color}"><i style="width:${Math.round((diffMin(o.start, now) / diffMin(o.start, o.end)) * 100)}%"></i></div>`).join('<div style="height:10px"></div>') : ''}
+        ${current.map((o) => `<div class="when">jusqu’à ${fmtTime(o.end)}</div><div class="big">${esc(o.title)}</div><div class="progress" style="--c:${catById(s, o.catId).color}"><i style="width:${Math.round((diffMin(o.start, now) / diffMin(o.start, o.end)) * 100)}%"></i></div>`).join('<div style="height:10px"></div>')}
         ${next ? `<div style="margin-top:${current.length ? 16 : 0}px">${current.length ? '<div class="small muted">Ensuite</div>' : ''}<div class="when">${rel(next.start)}</div><div class="big" style="${current.length ? 'font-size:16px' : ''}">${esc(next.title)}</div>
-          <div class="muted small">${fmtTime(next.start)} – ${fmtTime(next.end)}${next.ev.location ? ' · ' + esc(next.ev.location) : ''}</div>
-          <div style="margin-top:8px"><span class="pill" style="--c:${catById(s, next.catId).color}"><i></i>${esc(catById(s, next.catId).name)}</span></div></div>` : '<div class="empty">Rien de prévu dans les 7 prochains jours.</div>'}
-      </div>
-      <div class="card span-4">
-        <h2>${ws > now ? 'Semaine qui vient' : 'Progression de la semaine'} <span class="pill">${pct}%</span></h2>
-        <div class="progress" style="height:10px;margin-bottom:14px"><i style="width:${pct}%"></i></div>
-        <div class="stat-row"><span class="lbl" style="--c:${catById(s, 'revision').color}"><i></i>Révisions</span><div class="progress" style="--c:${catById(s, 'revision').color}"><i style="width:${revPlan ? (revDone / revPlan) * 100 : 0}%"></i></div><span class="val">${fmtHours(revDone)} / ${fmtHours(revPlan)}</span></div>
-        <div class="stat-row"><span class="lbl" style="--c:${catById(s, 'sport').color}"><i></i>Sport</span><div class="progress" style="--c:${catById(s, 'sport').color}"><i style="width:${sportAll.length ? (sportAll.filter((o) => o.end <= now && !o.ev.skipped).length / sportAll.length) * 100 : 0}%"></i></div><span class="val">${sportAll.filter((o) => o.end <= now && !o.ev.skipped).length} / ${sportAll.length} séances</span></div>
-        ${['dessin', 'musique', 'video'].map((cid) => { const o = weekOcc.filter((x) => x.catId === cid && x.ev.goalId); const pl = o.reduce((t, x) => t + diffMin(x.start, x.end), 0); const dn = o.filter((x) => x.end <= now && !x.ev.skipped).reduce((t, x) => t + diffMin(x.start, x.end), 0); const c = catById(s, cid); return `<div class="stat-row"><span class="lbl" style="--c:${c.color}"><i></i>${esc(c.name)}</span><div class="progress" style="--c:${c.color}"><i style="width:${pl ? (dn / pl) * 100 : 0}%"></i></div><span class="val">${fmtHours(dn)} / ${fmtHours(pl)}</span></div>`; }).join('')}
-        <div class="small muted" style="margin-top:6px">Tâches de la semaine : ${tasksWeek.filter((t) => t.status === 'terminé').length} / ${tasksWeek.length} terminées</div>
-      </div>
-      <div class="card span-4">
-        <h2>Tâches prioritaires <button class="btn ghost sm" data-goto-tasks>Tout voir</button></h2>
+          <div class="muted small">${fmtTime(next.start)} – ${fmtTime(next.end)}${next.ev.location ? ' · ' + esc(next.ev.location) : ''}</div></div>` : '<div class="empty">Rien de prévu dans les 7 prochains jours.</div>'}
+        <h2 style="margin-top:18px">Tâches prioritaires <button class="btn ghost sm" data-goto-tasks>Tout voir</button></h2>
         ${prio.length ? prio.map((t) => taskRow(t, true)).join('') : '<div class="empty">Aucune tâche en attente 🎉</div>'}
       </div>
-      <div class="card span-5">
-        <h2>Ma journée <button class="btn ghost sm" data-goto-day>Check-liste</button></h2>
-        <div class="tl">${todayOcc.length ? todayOcc.filter((o) => !/^sommeil$/i.test(o.title)).map((o) => `<div class="tl-item ${o.end <= now && !isDone(o) ? 'past' : ''} ${isDone(o) ? 'done' : ''} ${o.start <= now && o.end > now ? 'now' : ''}" data-key="${esc(o.key)}" style="--c:${catById(s, o.catId).color}"><button class="cl-chk sm" data-done="${esc(o.key)}">${isDone(o) ? ICON.tick : ''}</button><span class="h">${sameDay(o.start, today) ? fmtTime(o.start) : '…'}</span><span class="b"></span><div><div class="t">${esc(o.title)}</div><div class="s">${fmtTime(o.start)} – ${fmtTime(o.end)}${o.ev.location ? ' · ' + esc(o.ev.location) : ''}</div></div></div>`).join('') : '<div class="empty">Journée libre.</div>'}</div>
-      </div>
-      <div class="card span-7">
-        <h2>Temps prévu par catégorie (semaine)</h2>
-        <div class="stack" style="margin-bottom:14px">${groups.filter((g) => g !== 'sommeil').map((g) => `<i style="--c:${gColor(g)};width:${(rep.groups[g].planned / groups.filter((x) => x !== 'sommeil').reduce((t, x) => t + rep.groups[x].planned, 0)) * 100}%" title="${esc(GROUPS[g])}"></i>`).join('')}</div>
-        ${groups.map((g) => `<div class="stat-row"><span class="lbl" style="--c:${gColor(g)}"><i></i>${esc(GROUPS[g] || g)}</span><div class="progress" style="--c:${gColor(g)};background:transparent"><i style="width:${(rep.groups[g].planned / maxG) * 100}%;opacity:.85"></i></div><span class="val">${fmtHours(rep.groups[g].planned)}</span></div>`).join('') || '<div class="empty">Rien de planifié.</div>'}
-      </div>
+      ${progressCard(s, ws, we, rep, 'span-6')}
       <div class="card span-6">
         <h2>Objectifs en cours <button class="btn ghost sm" data-goto-goals>Tout voir</button></h2>
-        ${goals.map((g) => { const pl = weekOcc.filter((o) => o.ev.goalId === g.id).reduce((t, o) => t + diffMin(o.start, o.end), 0); const c = catById(s, g.catId); return `<div style="margin-bottom:12px;cursor:pointer" data-goal="${g.id}"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;margin-bottom:5px"><b style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.title)}</b><span class="muted small" style="white-space:nowrap">${g.weeklyMinutes ? `${fmtHours(pl)} / ${fmtHours(g.weeklyMinutes)} cette sem.` : ''} · ${g.progress}%</span></div><div class="progress" style="--c:${c.color}"><i style="width:${g.progress}%"></i></div></div>`; }).join('') || '<div class="empty">Aucun objectif.</div>'}
+        ${goals.map((g) => { const c = catById(s, g.catId); return `<div style="margin-bottom:12px;cursor:pointer" data-goal="${g.id}"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;margin-bottom:5px"><b style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(g.title)}</b><span class="muted small">${g.progress}%</span></div><div class="progress" style="--c:${c.color}"><i style="width:${g.progress}%"></i></div></div>`; }).join('') || '<div class="empty">Aucun objectif.</div>'}
       </div>
-      <div class="card span-6">
+      <div class="card span-12">
         <h2>À compléter dans mon planning <button class="btn ghost sm" data-goto-review>Bilan complet</button></h2>
         <div class="checks">${issues.length ? issues.map(issueRow).join('') : '<div class="empty">Ta semaine est complète ✅</div>'}</div>
       </div>
@@ -350,7 +355,6 @@ function renderToday() {
   const occByKey = new Map(todayOcc.map((o) => [o.key, o]));
   view.querySelectorAll('.tl-item').forEach((el) => (el.onclick = () => app.editOcc(occByKey.get(el.dataset.key))));
   view.querySelectorAll('.tl [data-done]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); toggleDone(occByKey.get(b.dataset.done)); }));
-  view.querySelector('[data-goto-day]').onclick = () => app.goto(new Date(), 'day');
   view.querySelector('[data-goto-tasks]').onclick = () => setView('tasks');
   view.querySelector('[data-goto-goals]').onclick = () => setView('goals');
   view.querySelector('[data-goto-review]').onclick = () => setView('review');
@@ -448,7 +452,16 @@ function renderGoals() {
   const ws = startOfWeek(new Date());
   const weekOcc = expand(s, ws, addDays(ws, 7));
   const pcls = { 'élevée': 'high', 'moyenne': 'mid', 'faible': 'low' };
-  view.innerHTML = `<div class="page"><div class="goals">${s.goals.map((g) => {
+  const rep = weekReport(s, planningWeek());
+  const st = rep.stats;
+  const targetRow = (kind, id, name, color, val, planned) => `<div class="tg-row" style="--c:${color}"><i></i><span class="tg-n">${esc(name)}</span><span class="tg-p muted small">${fmtHours(planned)} prévues</span>
+    <input type="number" min="0" step="0.5" inputmode="decimal" value="${val ? Math.round((val / 60) * 10) / 10 : ''}" placeholder="—" data-target="${kind}|${id}"><span class="small muted">h/sem.</span></div>`;
+  const targetsHtml = `<div class="card" style="margin-bottom:16px"><h2>Temps à consacrer par semaine <span class="small faint" style="font-weight:400">apparaît dans Bilan › Temps prévu par catégorie</span></h2>
+    <div class="tg-grid">${s.categories.filter((c) => !c.parallel).map((c) => targetRow('cat', c.id, c.name, c.color, c.weeklyTarget, st.cats[c.id]?.planned || 0)).join('')}</div>
+    <h3 style="margin:14px 0 6px;font-size:13px;color:var(--muted)">Révisions par matière</h3>
+    <div class="tg-grid">${s.subjects.filter((x) => x.revise || x.weeklyTarget).map((x) => targetRow('sub', x.id, x.name, x.color, x.weeklyTarget, st.subs['rev:' + x.id]?.planned || 0)).join('')}</div>
+    <div class="small faint" style="margin-top:8px">Pour les matières, l’organisation automatique répartit les révisions pour atteindre ces temps (et renforce les matières dont l’examen approche).</div></div>`;
+  view.innerHTML = `<div class="page">${targetsHtml}<div class="goals">${s.goals.map((g) => {
     const c = catById(s, g.catId);
     const pl = weekOcc.filter((o) => o.ev.goalId === g.id).reduce((t, o) => t + diffMin(o.start, o.end), 0);
     const daysLeft = g.due ? Math.ceil((parseD(g.due) - dayStart(new Date())) / 864e5) : null;
@@ -464,6 +477,11 @@ function renderGoals() {
   }).join('') || '<div class="empty">Aucun objectif pour l’instant.</div>'}</div></div>`;
   view.querySelectorAll('[data-goal]').forEach((el) => (el.onclick = (e) => { if (e.target.closest('[data-stop],button')) return; openGoalEditor(el.dataset.goal); }));
   view.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => openGoalEditor(b.dataset.edit)));
+  view.querySelectorAll('[data-target]').forEach((inp) => inp.addEventListener('change', () => {
+    const [kind, id] = inp.dataset.target.split('|');
+    const v = Math.max(0, Math.round((parseFloat(String(inp.value).replace(',', '.')) || 0) * 60));
+    mutate('Temps visé', (s2) => { const x = (kind === 'cat' ? s2.categories : s2.subjects).find((y) => y.id === id); if (x) { if (v) x.weeklyTarget = v; else delete x.weeklyTarget; } });
+  }));
   view.querySelectorAll('[data-prop]').forEach((b) => (b.onclick = () => openGoalProposals(b.dataset.prop)));
   view.querySelectorAll('[data-sub]').forEach((i) => (i.onchange = () => {
     const [gid, sid] = i.dataset.sub.split('|');
@@ -475,6 +493,21 @@ function renderGoals() {
 }
 
 /* ===================== BILAN ===================== */
+/** Temps prévu par catégorie, avec le temps visé réglé dans Objectifs */
+function timeByCategoryCard(s, rep, cls = 'span-12') {
+  const st = rep.stats;
+  const rows = s.categories.filter((c) => (st.cats[c.id]?.planned || 0) > 0 || c.weeklyTarget > 0).map((c) => {
+    const pl = st.cats[c.id]?.planned || 0, t = c.weeklyTarget || 0;
+    const subs = c.id === 'revision' ? s.subjects.filter((x) => (st.subs['rev:' + x.id]?.planned || 0) > 0 || x.weeklyTarget > 0).map((x) => {
+      const p2 = st.subs['rev:' + x.id]?.planned || 0, t2 = x.weeklyTarget || 0;
+      return `<div class="stat-row t2 sub" title="${esc(x.name)}"><span class="lbl" style="--c:${x.color}"><i></i>${esc(x.name)}</span><div class="progress" style="--c:${x.color}"><i style="width:${t2 ? Math.min(100, (p2 / t2) * 100) : 100}%"></i></div><span class="val ${t2 && p2 < t2 - 30 ? 'under' : ''}">${fmtHours(p2)}${t2 ? ' / ' + fmtHours(t2) : ''}</span></div>`;
+    }).join('') : '';
+    return `<div class="stat-row t2"><span class="lbl" style="--c:${c.color}"><i></i>${esc(c.name)}</span><div class="progress" style="--c:${c.color}"><i style="width:${t ? Math.min(100, (pl / t) * 100) : 100}%"></i></div><span class="val ${t && pl < t - 30 ? 'under' : ''}">${fmtHours(pl)}${t ? ' / ' + fmtHours(t) : ''}</span></div>${subs}`;
+  }).join('');
+  return `<div class="card ${cls}"><h2>Temps prévu par catégorie <button class="btn ghost sm" data-goto-targets>Régler les temps visés</button></h2>${rows || '<div class="empty">Rien de planifié.</div>'}
+    <div class="small faint" style="margin-top:6px">Prévu / visé par semaine. Les temps visés se règlent dans Objectifs.</div></div>`;
+}
+
 function renderReview() {
   const s = state;
   const ws = startOfWeek(ui.reviewWeek || planningWeek());
@@ -488,29 +521,18 @@ function renderReview() {
   topbar.querySelector('[data-next]').onclick = () => { ui.reviewWeek = addDays(ws, 7); render(); };
   topbar.querySelector('[data-cur]').onclick = () => { ui.reviewWeek = planningWeek(); render(); };
   topbar.querySelector('[data-plan]').onclick = () => openPlanDialog(ws);
-
-  const gColor = (g) => (s.categories.find((c) => c.group === g) || {}).color || '#888';
-  const targets = {
-    sommeil: s.settings.sleepTarget * 7,
-    sport: (s.habits.find((h) => h.catId === 'sport' && h.type === 'weekly' && h.enabled)?.times || 3) * 60 + 90,
-    perso: s.goals.filter((g) => g.active !== false && catById(s, g.catId).group === 'perso').reduce((t, g) => t + g.weeklyMinutes, 0) + 7 * 15,
-  };
-  const order = [...s.settings.groupOrder, 'libre'];
-  const cats = s.categories.filter((c) => rep.byCat[c.id]).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
   const conf = rep.conflicts;
   view.innerHTML = `<div class="page"><div class="cards">
-    <div class="card span-7"><h2>Ce qui manque ou pose problème</h2><div class="checks">${rep.items.map(issueRow).join('')}</div></div>
-    <div class="card span-5"><h2>Temps prévu par catégorie</h2>
-      ${order.filter((g) => rep.groups[g]).map((g) => { const pl = rep.groups[g].planned; const t = targets[g]; return `<div class="stat-row"><span class="lbl" style="--c:${gColor(g)}"><i></i>${esc(GROUPS[g])}</span><div class="progress" style="--c:${gColor(g)}"><i style="width:${t ? Math.min(100, (pl / t) * 100) : 100}%"></i></div><span class="val">${fmtHours(pl)}${t ? ` / ${fmtHours(t)}` : ''}</span></div>`; }).join('')}
-      <h2 style="margin-top:18px">Détail</h2>
-      ${cats.map((c) => `<div class="stat-row"><span class="lbl" style="--c:${c.color}"><i></i>${esc(c.name)}</span><span></span><span class="val">${fmtHours(rep.byCat[c.id])}</span></div>`).join('')}
-    </div>
+    ${timeByCategoryCard(s, rep, 'span-7')}
+    ${progressCard(s, ws, addDays(ws, 7), rep, 'span-5')}
+    <div class="card span-12"><h2>Ce qui manque ou pose problème</h2><div class="checks">${rep.items.map(issueRow).join('')}</div></div>
     ${conf.length ? `<div class="card span-12"><h2>Conflits d’horaires</h2>${conf.map(([a, b]) => `<div class="row" style="cursor:default"><span class="lvl bad">!</span><div class="main"><div class="t">${esc(a.title)} ↔ ${esc(b.title)}</div><div class="s" style="text-transform:capitalize">${fmtDayLong(a.start)} · ${fmtTime(a.start)}–${fmtTime(a.end)} / ${fmtTime(b.start)}–${fmtTime(b.end)}</div></div><button class="btn sm" data-ok="${esc(a.key)}">${esc(a.title.slice(0, 18))}</button><button class="btn sm" data-ok="${esc(b.key)}">${esc(b.title.slice(0, 18))}</button></div>`).join('')}
-      <p class="small muted">Ex. compétition de volley le jeudi après-midi : garde la compétition et marque le cours « Pas fait / annulé » (il reste visible, barré) ou supprime-le.</p></div>` : ''}
+      <p class="small muted">Ex. compétition de volley le jeudi après-midi : garde la compétition et marque le cours « Pas fait / annulé » ou supprime-le.</p></div>` : ''}
   </div></div>`;
   bindCommon(view);
   const occ = new Map(conf.flat().map((o) => [o.key, o]));
   view.querySelectorAll('[data-ok]').forEach((b) => (b.onclick = () => app.editOcc(occ.get(b.dataset.ok))));
+  view.querySelector('[data-goto-targets]').onclick = () => { setView('goals'); };
 }
 
 /* ===================== RÉGLAGES ===================== */

@@ -1,6 +1,6 @@
 // Bilan de la semaine : ce qui manque, surcharges, conflits, temps par catégorie
 import { addDays, fmtD, diffMin, isoDow, isWeekend, DOW_LONG, fmtDur, parseD, dayStart } from './util.js';
-import { expand, catById, conflicts, isSoft } from './model.js';
+import { expand, catById, conflicts, isSoft, isDone } from './model.js';
 import { examMap } from './planner.js';
 import { GROUPS } from './seed.js';
 
@@ -14,7 +14,7 @@ export function minutesByGroup(s, occs, ws, we) {
     const min = (b - a) / 60000;
     m[g] = m[g] || { planned: 0, done: 0 };
     m[g].planned += min;
-    if (!o.ev.skipped) m[g].done += Math.max(0, (Math.min(b, now) - a) / 60000);
+    if (isDone(o, now)) m[g].done += min;
   }
   return m;
 }
@@ -27,6 +27,24 @@ export function minutesByCat(s, occs, ws, we) {
     m[o.catId] = (m[o.catId] || 0) + (b - a) / 60000;
   }
   return m;
+}
+/** minutes prévues et faites par catégorie et par matière (révisions) */
+export function catStats(s, occs, ws, we) {
+  const cats = {}, subs = {};
+  const now = new Date();
+  for (const o of occs) {
+    const a = Math.max(o.start, ws), b = Math.min(o.end, we);
+    if (b <= a || o.ev.skipped) continue;
+    const min = (b - a) / 60000, done = isDone(o, now) ? min : 0;
+    const c = (cats[o.catId] = cats[o.catId] || { planned: 0, done: 0 });
+    c.planned += min; c.done += done;
+    if (o.subjectId && ['revision', 'cours', 'visio'].includes(o.catId)) {
+      const k = `${o.catId === 'revision' ? 'rev' : 'cours'}:${o.subjectId}`;
+      const x = (subs[k] = subs[k] || { planned: 0, done: 0 });
+      x.planned += min; x.done += done;
+    }
+  }
+  return { cats, subs };
 }
 
 /**
@@ -110,6 +128,13 @@ export function weekReport(s, ws) {
     if (!inWeek.some((o) => o.title === h.title)) items.push({ level: 'warn', title: `« ${h.title} » absent cette semaine`, detail: '', action: 'plan' });
   }
 
+  // 10b. Temps visé par catégorie / matière (réglé dans Objectifs)
+  const st2 = catStats(s, inWeek, ws, we);
+  const under = [];
+  for (const c of s.categories) if (c.weeklyTarget > 0 && (st2.cats[c.id]?.planned || 0) < c.weeklyTarget - 30) under.push(`${c.name} (${fmtDur(st2.cats[c.id]?.planned || 0)} / ${fmtDur(c.weeklyTarget)})`);
+  for (const x of s.subjects) if (x.weeklyTarget > 0 && (st2.subs['rev:' + x.id]?.planned || 0) < x.weeklyTarget - 30) under.push(`Révisions ${x.name} (${fmtDur(st2.subs['rev:' + x.id]?.planned || 0)} / ${fmtDur(x.weeklyTarget)})`);
+  if (under.length) items.push({ level: 'warn', title: 'Temps visé pas encore atteint', detail: under.join(', ') + '.', action: 'plan' });
+
   // 11. Informations manquantes
   const info = [];
   if (!st.toeflDate) info.push('la date de ta certification TOEFL (pour lancer l’entraînement 2 semaines avant)');
@@ -126,7 +151,7 @@ export function weekReport(s, ws) {
 
   const order = { bad: 0, warn: 1, info: 2, ok: 3 };
   items.sort((a, b) => order[a.level] - order[b.level]);
-  return { items, groups: minutesByGroup(s, inWeek.filter((o) => !o.ev.skipped), ws, we), byCat: minutesByCat(s, inWeek, ws, we), conflicts: cf };
+  return { items, groups: minutesByGroup(s, inWeek.filter((o) => !o.ev.skipped), ws, we), byCat: minutesByCat(s, inWeek, ws, we), stats: catStats(s, inWeek, ws, we), conflicts: cf };
 }
 
 export { GROUPS };
