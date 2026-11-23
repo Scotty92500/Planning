@@ -10,13 +10,13 @@ export const GROUPS = {
   perso: 'Objectifs perso',
   asso: 'Volley & BDE',
   sorties: 'Sorties & loisirs',
-  menage: 'Rangement',
+  menage: 'Maison & hygiène',
   libre: 'Marge imprévus',
 };
 
 export function defaultSettings() {
   return {
-    dayStart: 7, dayEnd: 24, hourHeight: 52, theme: 'auto', defaultView: 'week',
+    dayStart: 7, dayEnd: 24, hourHeight: 52, fitScreen: true, theme: 'auto', defaultView: 'week',
     hiddenCats: [], monthHideRoutine: true,
     groupOrder: ['sommeil', 'etudes', 'repas', 'sport', 'perso', 'asso', 'sorties', 'menage'],
     sleepTarget: 480,
@@ -30,30 +30,35 @@ export function defaultSettings() {
   };
 }
 
-const C = (id, name, color, group, system = false) => ({ id, name, color, group, system });
+const C = (id, name, color, group, system = false, parallel = false) => ({ id, name, color, group, system, ...(parallel ? { parallel: true } : {}) });
 export function defaultCategories() {
   return [
-    C('cours', 'Cours', '#4f7cff', 'etudes'),
-    C('revision', 'Travail perso & révisions', '#16a34a', 'etudes'),
+    C('cours', 'Cours en présentiel', '#7cb342', 'etudes'),
+    C('visio', 'Cours en visio', '#f59e0b', 'etudes'),
+    C('examen', 'Examens & CC', '#dc2626', 'etudes'),
+    C('revision', 'Travail perso & révisions', '#4f7cff', 'etudes'),
     C('dessin', 'Dessin / manga', '#d946ef', 'perso'),
     C('musique', 'Musique / prods', '#8b5cf6', 'perso'),
-    C('video', 'Montage vidéo', '#f97316', 'perso'),
+    C('video', 'Montage vidéo', '#14b8a6', 'perso'),
     C('sport', 'Sport & musculation', '#ef4444', 'sport'),
     C('volley', 'Volley & LeoVolley', '#eab308', 'asso'),
     C('bde', 'Asso & BDE', '#06b6d4', 'asso'),
     C('sorties', 'Loisirs & sorties', '#ec4899', 'sorties'),
+    C('petitdej', 'Petit-déjeuner', '#a3e635', 'repas'),
     C('repas', 'Repas', '#65a30d', 'repas'),
+    C('hygiene', 'Hygiène / douche', '#38bdf8', 'menage'),
+    C('lessive', 'Lessive', '#c084fc', 'menage', false, true),
     C('menage', "Rangement d'appart", '#a8a29e', 'menage'),
     C('sommeil', 'Sommeil & repos', '#64748b', 'sommeil'),
     C('libre', 'Marge imprévus', '#94a3b8', 'libre', true),
   ];
 }
 
-const S = (id, name, color, weight, revise = true) => ({ id, name, color, weight, revise, examDate: '', aliases: [] });
+const S = (id, name, color, weight, aliases = [], revise = true) => ({ id, name, color, weight, revise, examDate: '', aliases });
 export function defaultSubjects() {
   return [
     S('algebre', 'Algèbre linéaire', '#6366f1', 3),
-    S('mecaflu', 'Mécanique des fluides', '#0ea5e9', 3),
+    S('mecaflu', 'Mécanique des fluides', '#0ea5e9', 3, ['Méca. Fluides', 'Méca flu']),
     S('algo', 'Algorithmique & POO', '#10b981', 3),
     S('sdd', 'Structures de données', '#14b8a6', 3),
     S('stats', 'Introduction aux statistiques', '#f59e0b', 2),
@@ -61,14 +66,23 @@ export function defaultSubjects() {
     S('rdm', 'Résistance des matériaux', '#78716c', 2),
     S('syselec', 'Systèmes électroniques', '#f43f5e', 2),
     S('greenit', 'Green IT', '#22c55e', 2),
-    S('toefl', 'TOEFL', '#3b82f6', 1),
+    S('toefl', 'TOEFL', '#3b82f6', 1, ['TOEFL Preparation']),
+    S('bdd', 'Conception de bases de données', '#0891b2', 2),
   ];
 }
 
 // type: 'fixed' (heure fixe) | 'flex' (fenêtre, chaque jour coché) | 'weekly' (N fois / semaine)
 const H = (o) => ({ id: uid(), enabled: true, minDuration: o.duration, note: '', ...o });
+export function routineHabits() {
+  return [
+    H({ title: 'Petit-déjeuner', catId: 'petitdej', type: 'flex', days: [1, 2, 3, 4, 5, 6, 7], window: ['07:00', '08:00'], weekendWindow: ['08:00', '11:00'], preferred: '07:00', duration: 20, minDuration: 15 }),
+    H({ title: 'Douche', catId: 'hygiene', type: 'flex', days: [1, 2, 3, 4, 5, 6, 7], window: ['07:00', '08:15'], weekendWindow: ['08:00', '11:30'], preferred: '07:20', duration: 15, note: 'Moment à confirmer (matin ou après le sport ?)' }),
+    H({ title: 'Lessive', catId: 'lessive', type: 'with', with: 'Musculation', times: 1, days: [1, 2, 3, 4, 5, 6, 7], duration: 60, note: 'Pendant une séance de muscu — 1 fois/semaine à confirmer' }),
+  ];
+}
 export function defaultHabits() {
   return [
+    ...routineHabits(),
     H({ title: 'Sommeil', catId: 'sommeil', type: 'fixed', days: [7, 1, 2, 3, 4], start: '23:00', duration: 480, minDuration: 300 }),
     H({ title: 'Sommeil', catId: 'sommeil', type: 'fixed', days: [5], start: '23:00', duration: 540, minDuration: 300, note: 'Réveil samedi 8h — à confirmer' }),
     H({ title: 'Sommeil', catId: 'sommeil', type: 'fixed', days: [6], start: '23:00', duration: 660, minDuration: 300, note: 'Grasse matinée dimanche (réveil 10h) — à confirmer' }),
@@ -90,63 +104,35 @@ export function defaultGoals() {
     { id: uid(), title: 'Créer mon propre manga', desc: 'Sur tablette graphique — je débute.', catId: 'dessin', due: '2027-06-30', priority: 'moyenne', progress: 0, subtasks: [st('Prendre en main la tablette et le logiciel'), st('Bases : formes, perspective, anatomie'), st('Créer les personnages principaux')], weeklyMinutes: 210, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
     { id: uid(), title: 'Faire mes prods et un album', desc: 'Créer mes propres sons ; écrire des paroles 15 min chaque soir (déjà planifié).', catId: 'musique', due: '2027-06-30', priority: 'moyenne', progress: 0, subtasks: [st('Choisir et prendre en main un logiciel de MAO'), st('Finir une première prod'), st('Lister les titres de l’album')], weeklyMinutes: 210, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
     { id: uid(), title: 'Montage vidéo', desc: 'Tourner pendant la semaine, monter le week-end.', catId: 'video', due: '2027-06-30', priority: 'moyenne', progress: 0, subtasks: [st('Définir le format des vidéos'), st('Monter la première vidéo')], weeklyMinutes: 120, sessionMin: 60, days: [6, 7], when: 'auto', active: true },
-    { id: uid(), title: 'Partiels de janvier : rattraper Algèbre, Méca flu, Programmation', desc: 'Faire le meilleur possible ; renforcer les autres matières. Les révisions sont réparties automatiquement selon la priorité des matières.', catId: 'revision', due: '', priority: 'élevée', progress: 0, subtasks: [st('Fiches Algèbre linéaire'), st('Fiches Mécanique des fluides'), st('Exercices Algorithmique & POO / Structures de données')], weeklyMinutes: 0, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
-    { id: uid(), title: 'TOEFL niveau C1', desc: 'Entraînement intensif 2 semaines avant la certification.', catId: 'revision', due: '', priority: 'moyenne', progress: 0, subtasks: [st('Fixer la date de la certification'), st('Faire un test blanc')], weeklyMinutes: 0, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
+    { id: uid(), title: 'Partiels de janvier : rattraper Algèbre, Méca flu, Programmation', desc: 'Du 4 au 7 janvier. Faire le meilleur possible ; renforcer les autres matières. Les révisions sont réparties automatiquement selon la priorité des matières et la date de chaque examen.', catId: 'revision', due: '2027-01-07', priority: 'élevée', progress: 0, subtasks: [st('Fiches Algèbre linéaire'), st('Fiches Mécanique des fluides'), st('Exercices Algorithmique & POO / Structures de données')], weeklyMinutes: 0, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
+    { id: uid(), title: 'TOEFL niveau C1', desc: 'Certification le samedi 19/12 (9h–13h). Entraînement intensif à partir du 5/12 (placé automatiquement).', catId: 'revision', due: '2026-12-19', priority: 'élevée', progress: 0, subtasks: [{ ...st('Fixer la date de la certification'), done: true }, st('Faire un test blanc')], weeklyMinutes: 0, sessionMin: 60, days: [1, 2, 3, 4, 5, 6, 7], when: 'auto', active: true },
   ];
 }
 
 export function defaultTasks() {
   return [
-    { id: uid(), title: 'Préparer les CC (dates et matières à préciser)', due: '', priority: 'élevée', estimate: 120, catId: 'revision', subjectId: '', status: 'à faire', notes: '' },
-    { id: uid(), title: 'Importer mon EDT de la semaine du 23/11', due: '2026-11-23', priority: 'élevée', estimate: 5, catId: 'cours', subjectId: '', status: 'à faire', notes: 'Envoie la capture à Claude, puis Réglages › Importer des cours.' },
-  ];
-}
-
-const rec = (title, kind, subjectId, d, s, e, location, catId = 'cours') => ({
-  id: uid(), title: kind ? `${title} [${kind}]` : title, catId, subjectId, start: `${d}T${s}`, end: `${d}T${e}`, location, notes: '', source: 'import',
-});
-/** Cours de la semaine du 16/11 (capture envoyée par l'utilisateur) */
-export function seedCourses() {
-  return [
-    rec('Green IT', 'CAo', 'greenit', '2026-11-16', '08:15', '09:45', 'ZOOM'),
-    rec('Green IT', 'CAo', 'greenit', '2026-11-16', '10:00', '11:30', 'ZOOM'),
-    rec('Structures de données', 'CMo', 'sdd', '2026-11-16', '13:30', '15:00', 'ZOOM'),
-    rec('Algèbre linéaire', 'CMo', 'algebre', '2026-11-16', '17:00', '18:30', 'NCHA-101, ZOOM'),
-    rec('Introduction aux statistiques', 'TD', 'stats', '2026-11-17', '08:15', '09:45', 'NCHA-104'),
-    rec('Algèbre linéaire', 'TD', 'algebre', '2026-11-17', '10:00', '11:30', 'NCHA-108'),
-    rec('Algèbre linéaire', 'TD', 'algebre', '2026-11-17', '11:45', '13:15', 'NCHA-108'),
-    rec('Green IT', 'CA', 'greenit', '2026-11-17', '15:15', '16:45', 'NCHA-108'),
-    rec('Green IT', 'CA', 'greenit', '2026-11-17', '17:00', '18:30', 'NCHA-108'),
-    rec('Réservation - International', 'NR', '', '2026-11-18', '08:15', '20:15', 'NCHA-101, NCHA-006 Coworking'),
-    rec('Algorithmique & POO', 'TP', 'algo', '2026-11-19', '08:15', '09:45', 'NCHA-113'),
-    rec('Algorithmique & POO', 'TP', 'algo', '2026-11-19', '10:00', '11:30', 'NCHA-113'),
-    rec('TOEFL Preparation', 'LV', 'toefl', '2026-11-19', '13:30', '15:00', 'NCHA-008'),
-    rec('Réservation - Réunion', 'NR', '', '2026-11-19', '15:15', '16:45', 'NCHA-006 Coworking'),
-    rec('Résistance des matériaux', 'TD', 'rdm', '2026-11-19', '17:00', '18:30', 'NCHA-115'),
-    rec('Sport Nantes', 'SP', '', '2026-11-20', '10:00', '11:30', 'Hors campus', 'sport'),
-    rec('Séries', 'TD', 'series', '2026-11-20', '13:30', '15:00', 'NCHA-109'),
-    rec('Systèmes électroniques', 'TP', 'syselec', '2026-11-20', '17:00', '18:30', 'NCHA-001'),
-    rec('Systèmes électroniques', 'TP', 'syselec', '2026-11-20', '18:45', '20:15', 'NCHA-001'),
+    { id: uid(), title: 'Réviser les CC du samedi 28/11 (Séries, Algèbre linéaire, Algo & POO)', due: '2026-11-27', priority: 'élevée', estimate: 180, catId: 'revision', subjectId: '', status: 'à faire', notes: 'Séries 8h30, Algèbre 9h45, Algo & POO 11h00.' },
   ];
 }
 
 export function seedRecurring() {
   return [
-    { id: uid(), title: 'Entraînement volley', catId: 'volley', subjectId: '', start: '2026-11-19T19:30', end: '2026-11-19T21:00', location: '', notes: 'Mercredi parfois : à ajouter toi-même.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: [] },
-    { id: uid(), title: 'Réunion BDE (respo événementiel)', catId: 'bde', subjectId: '', start: '2026-11-19T12:30', end: '2026-11-19T13:30', location: '', notes: 'Créneau variable — fin à 13h30 à confirmer.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: [] },
+    { id: uid(), title: 'Entraînement volley', catId: 'volley', subjectId: '', start: '2026-11-19T19:30', end: '2026-11-19T21:00', location: '', notes: 'Mercredi parfois : à ajouter toi-même.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: ['2026-12-24', '2026-12-31'] },
+    { id: uid(), title: 'Réunion BDE (respo événementiel)', catId: 'bde', subjectId: '', start: '2026-11-19T12:30', end: '2026-11-19T13:30', location: '', notes: 'Créneau variable — fin à 13h30 à confirmer.', source: 'manual', recur: { freq: 'weekly', interval: 1, byDay: [4], until: '' }, exdates: ['2026-12-24', '2026-12-31'] },
   ];
 }
 
 export function seedState() {
   return {
     version: 1,
-    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true },
+    meta: { createdAt: Date.now(), updatedAt: Date.now(), needsInitialPlan: true, v2: true },
+    tombs: {},
     settings: defaultSettings(),
     categories: defaultCategories(),
     subjects: defaultSubjects(),
     habits: defaultHabits(),
     goals: defaultGoals(),
     tasks: defaultTasks(),
-    events: [...seedCourses(), ...seedRecurring()],
+    events: [...seedRecurring()],
   };
 }

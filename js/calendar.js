@@ -35,13 +35,34 @@ export function shiftCursor(ui, dir) {
 const visible = (o) => !state.settings.hiddenCats.includes(o.catId);
 
 /* ===================== GRILLE ===================== */
-export function renderGrid(root, ui, app) {
+/** état « fait » d'une occurrence (coche de la vue Jour) */
+export const isDone = (o) => (o.occDate ? (o.ev.doneDates || []).includes(o.occDate) : !!o.ev.done);
+export function toggleDone(o) {
+  mutate('Coché', (s) => {
+    const ev = s.events.find((x) => x.id === o.ev.id);
+    if (!ev) return;
+    if (o.occDate) {
+      const set = new Set(ev.doneDates || []);
+      set.has(o.occDate) ? set.delete(o.occDate) : set.add(o.occDate);
+      ev.doneDates = [...set];
+    } else if (ev.done) delete ev.done;
+    else ev.done = true;
+  }, { undoable: false });
+}
+
+let headCache = 0;
+export function renderGrid(root, ui, app, pass = 0) {
   const s = state, st = s.settings;
   const days = visibleDays(ui);
   const H = st.dayStart, E = st.dayEnd;
-  const hourH = st.hourHeight || 52;
+  // « tout dans l'écran » : la hauteur d'une heure s'adapte à la place disponible
+  const fit = st.fitScreen !== false && root.clientHeight > 200;
+  const headGuess = headCache || (window.innerWidth <= 820 ? 52 : 66);
+  const hourH = fit ? Math.max(14, Math.floor(((root.clientHeight - headGuess - 2) / (E - H)) * 10) / 10) : st.hourHeight || 52;
   const narrow = window.innerWidth <= 820;
-  const colmin = days.length === 7 && narrow ? 88 : 0;
+  const colmin = 0; // les 7 jours tiennent toujours dans l'écran
+  const avail = window.innerWidth - (narrow ? 0 : 248) - (narrow ? 34 : 52);
+  const compact = avail / days.length < 96;
   const from = days[0], to = addDays(days[days.length - 1], 1);
   const occs = expand(s, addDays(from, -1), addDays(to, 1));
   const conf = conflictKeys(s, occs);
@@ -55,7 +76,7 @@ export function renderGrid(root, ui, app) {
       <div class="dow">${DOW_SHORT[isoDow(d)]}</div><div class="num">${d.getDate()}</div>
       <div class="load" title="Remplissage de la journée"><i style="width:${Math.round(load * 100)}%"></i></div></div>`;
   }).join('');
-  const hours = [...Array(E - H)].map((_, i) => `<div>${i === 0 ? '' : `${H + i}:00`}</div>`).join('');
+  const hours = [...Array(E - H)].map((_, i) => `<div>${i === 0 ? '' : `${String(H + i).padStart(2, '0')}:00`}</div>`).join('');
   const cols = days.map((d, di) => {
     const a = atMin(d, H * 60), b = atMin(d, E * 60);
     const items = occs.filter((o) => visible(o) && o.end > a && o.start < b).map((o) => {
@@ -72,13 +93,24 @@ export function renderGrid(root, ui, app) {
     return `<div class="day-col ${isWeekend(d) ? 'weekend' : ''} ${sameDay(d, today) ? 'today' : ''}" data-day="${di}" style="height:${colH}px">${evs}${now}</div>`;
   }).join('');
 
-  root.innerHTML = `<div class="cal"><div class="grid-scroll"><div class="grid" style="--cols:${days.length};--colmin:${colmin}px;--hour-h:${hourH}px">
-    <div class="gh-cell corner"></div>${head}<div class="time-col">${hours}</div>${cols}</div></div></div>`;
+  // repère de l'heure actuelle dans la colonne des heures
+  let nowTag = '';
+  if (days.some((d) => sameDay(d, today))) {
+    const m = minOfDay(today) - H * 60;
+    if (m >= 0 && m <= (E - H) * 60) nowTag = `<span class="now-tag" style="top:${(m / 60) * hourH}px">${fmtTime(today).padStart(5, '0')}</span>`;
+  }
+  root.innerHTML = `<div class="cal"><div class="grid-scroll ${fit ? 'fit' : ''}"><div class="grid ${compact ? 'compact' : ''} ${days.length === 1 ? 'single' : ''} ${fit && hourH < 40 ? 'dense' : ''}" style="--cols:${days.length};--colmin:${colmin}px;--hour-h:${hourH}px">
+    <div class="gh-cell corner"></div>${head}<div class="time-col">${hours}${nowTag}</div>${cols}</div></div></div>`;
+  if (fit && pass === 0) {
+    const h = root.querySelector('.gh-cell').offsetHeight;
+    if (Math.abs(h - headGuess) > 1) { headCache = h; return renderGrid(root, ui, app, 1); }
+  }
 
   const scroller = root.querySelector('.grid-scroll');
   // position de défaut : l'heure actuelle ou 8h
   const targetMin = days.some((d) => sameDay(d, today)) ? Math.max(0, minOfDay(today) - H * 60 - 90) : Math.max(0, (8 - H) * 60);
-  if (ui.keepScroll != null) scroller.scrollTop = ui.keepScroll; else scroller.scrollTop = (targetMin / 60) * hourH;
+  if (fit) scroller.scrollTop = 0;
+  else if (ui.keepScroll != null) scroller.scrollTop = ui.keepScroll; else scroller.scrollTop = (targetMin / 60) * hourH;
   if (ui.keepScrollX != null) scroller.scrollLeft = ui.keepScrollX;
   else if (colmin) { const ti = days.findIndex((d) => sameDay(d, today)); if (ti > 1) scroller.scrollLeft = (ti - 1) * colmin; }
   scroller.addEventListener('scroll', () => { ui.keepScroll = scroller.scrollTop; ui.keepScrollX = scroller.scrollLeft; }, { passive: true });
@@ -94,13 +126,21 @@ function evHtml(o, s0, e0, col, ncol, hourH, conflict, di) {
   const top = (s0 / 60) * hourH, h = Math.max(15, ((e0 - s0) / 60) * hourH - 2);
   const short = h < 34;
   const left = `calc(${(col / ncol) * 100}% + 2px)`, width = `calc(${100 / ncol}% - 4px)`;
-  const cls = ['ev', short ? 'short' : '', o.ev.source === 'auto' ? 'auto' : '', isSoft(s, o) ? 'soft' : '', o.ev.skipped ? 'skipped' : '', conflict ? 'conflict' : ''].join(' ');
+  const cls = ['ev', isDone(o) ? 'done' : '', h < 13 ? 'tiny' : '', short ? 'short' : '', o.ev.source === 'auto' ? 'auto' : '', isSoft(s, o) ? 'soft' : '', o.ev.skipped ? 'skipped' : '', conflict ? 'conflict' : ''].join(' ');
   const time = `${fmtTime(o.start)} – ${fmtTime(o.end)}`;
   const pin = o.ev.pinned ? '<span class="pin" title="Épinglé">📌</span>' : '';
   const rec = o.ev.recur ? ' ↻' : '';
-  return `<div class="${cls}" data-key="${esc(o.key)}" data-di="${di}" style="--c:${cat.color};${subj ? `--s:${subj.color};` : ''}top:${top}px;height:${h}px;left:${left};width:${width}" title="${esc(o.title)} · ${time}${o.ev.location ? ' · ' + esc(o.ev.location) : ''}">
-    ${subj ? '<span class="subj"></span>' : ''}
-    <div class="t">${esc(o.title)}${pin}${rec}</div><div class="h">${time}</div>${!short && o.ev.location && h > 50 ? `<div class="l">${esc(o.ev.location)}</div>` : ''}
+  // style « emploi du temps école » : (TD) / matière / salle
+  let km = o.title.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+  if (!km && o.catId === 'revision' && /^Révisions · /.test(o.title)) km = [o.title, o.title.replace(/^Révisions · /, ''), 'Rév.'];
+  const isCourse = km && cat.group === 'etudes';
+  const loc = (o.ev.location || '').replace(/\s*\(\d+\)/g, '').replace(/--/g, '-');
+  const tip = `${esc(o.title)} · ${time}${o.ev.location ? ' · ' + esc(o.ev.location) : ''}`;
+  const inner = isCourse
+    ? `<div class="k">(${esc(km[2])})</div><div class="t">${esc(km[1])}${pin}</div>${loc && !short ? `<div class="l">${esc(loc)}</div>` : ''}<div class="h">${time}</div>`
+    : `<div class="t">${esc(o.title)}${pin}${rec}</div><div class="h">${time}</div>${!short && loc && h > 50 ? `<div class="l">${esc(loc)}</div>` : ''}`;
+  return `<div class="${cls} ${isCourse ? 'course' : ''}" data-key="${esc(o.key)}" data-di="${di}" style="--c:${cat.color};${subj ? `--s:${subj.color};` : ''}top:${top}px;height:${h}px;left:${left};width:${width}" title="${tip}">
+    ${subj && !isCourse ? '<span class="subj"></span>' : ''}${inner}
     <div class="rs" data-resize></div></div>`;
 }
 
@@ -343,4 +383,48 @@ export function renderList(root, ui, app) {
   const byKey = new Map(occs.map((o) => [o.key, o]));
   root.querySelectorAll('[data-key]').forEach((el) => el.addEventListener('click', () => app.editOcc(byKey.get(el.dataset.key))));
   root.querySelectorAll('[data-task]').forEach((el) => el.addEventListener('click', () => app.editTask(el.dataset.task)));
+}
+
+/* ===================== JOURNÉE EN CHECK-LISTE ===================== */
+export function renderChecklist(root, ui, app) {
+  const s = state;
+  const day = dayStart(ui.cursor);
+  const now = new Date();
+  const isToday = sameDay(day, now);
+  const occs = expand(s, day, addDays(day, 1)).filter((o) => visible(o) && sameDay(o.start, day) && !isSoft(s, o) && !/^sommeil$/i.test(o.title));
+  const done = occs.filter(isDone).length;
+  const pct = occs.length ? Math.round((done / occs.length) * 100) : 0;
+  let nowPlaced = !isToday;
+  const nowRow = () => `<div class="cl-now"><span>${fmtTime(now).padStart(5, '0')}</span></div>`;
+  let rows = '';
+  for (const o of occs) {
+    if (!nowPlaced && o.start > now) { rows += nowRow(); nowPlaced = true; }
+    const cat = catById(s, o.catId);
+    const km = o.title.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+    const title = km ? km[1] : o.title;
+    const loc = (o.ev.location || '').replace(/\s*\(\d+\)/g, '').replace(/--/g, '-');
+    const cur = isToday && o.start <= now && o.end > now;
+    const past = isToday && o.end <= now;
+    rows += `<div class="cl-row ${isDone(o) ? 'done' : ''} ${cur ? 'cur' : ''} ${past && !isDone(o) ? 'past' : ''}" data-key="${esc(o.key)}" style="--c:${cat.color}">
+      <button class="cl-chk" data-done="${esc(o.key)}" aria-label="Fait">${isDone(o) ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"/></svg>' : ''}</button>
+      <span class="cl-time">${fmtTime(o.start).padStart(5, '0')}</span>
+      <span class="cl-bar"></span>
+      <div class="cl-main"><div class="cl-t">${km ? `<span class="cl-k">(${esc(km[2])})</span> ` : ''}${esc(title)}</div><div class="cl-s">${fmtTime(o.start)} – ${fmtTime(o.end)}${loc ? ' · ' + esc(loc) : ''}</div></div>
+    </div>`;
+  }
+  if (!nowPlaced) rows += nowRow();
+  root.innerHTML = `<div class="checklist">
+    <div class="cl-head"><div><div class="cl-date">${fmtDayLong(day).replace(/^./, (x) => x.toUpperCase())}${isToday ? ' · <span class="cl-clock">' + fmtTime(now).padStart(5, '0') + '</span>' : ''}</div>
+      <div class="cl-prog"><div class="progress"><i style="width:${pct}%"></i></div><span>${done}/${occs.length} faits</span></div></div>
+      <button class="btn sm" data-gridday title="Voir en grille">Grille</button></div>
+    <div class="cl-list">${occs.length ? rows : '<div class="empty">Rien de prévu ce jour-là.</div>'}</div></div>`;
+  const byKey = new Map(occs.map((o) => [o.key, o]));
+  root.querySelectorAll('[data-done]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); toggleDone(byKey.get(b.dataset.done)); }));
+  root.querySelectorAll('.cl-row').forEach((r) => (r.onclick = () => app.editOcc(byKey.get(r.dataset.key))));
+  root.querySelector('[data-gridday]').onclick = () => { ui.dayMode = 'grid'; app.rerender(); };
+  // balayage gauche/droite = jour précédent / suivant
+  let sx = 0, sy = 0;
+  const list = root.querySelector('.checklist');
+  list.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  list.addEventListener('touchend', (e) => { const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy; if (Math.abs(dx) > 70 && Math.abs(dy) < 50) app.shift(dx < 0 ? 1 : -1); }, { passive: true });
 }

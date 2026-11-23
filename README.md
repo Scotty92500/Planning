@@ -1,7 +1,7 @@
 # Mon Planning
 
 Application d'emploi du temps personnel : calendrier (jour, 3 jours, semaine, mois, liste), tâches, objectifs, organisation automatique de la semaine et bilan de ce qui manque.
-Elle s'installe sur le téléphone (PWA), marche hors connexion et n'a besoin d'aucun serveur ni d'aucun compte payant.
+Elle s'installe sur le téléphone (PWA), marche hors connexion, se synchronise entre PC et téléphone, et n'a besoin d'aucun serveur ni d'aucun compte payant.
 
 ---
 
@@ -40,15 +40,29 @@ L'app installée se met à jour toute seule à la prochaine ouverture avec du r�
 
 ---
 
-## 2. Où sont mes données ?
+## 2. Synchroniser le PC et le téléphone (gratuit)
 
-- Tout est enregistré **automatiquement**, à chaque modification, **dans le navigateur de l'appareil** (stockage local).
-- Il n'y a **pas de synchronisation automatique** entre le PC et le téléphone. Pour passer de l'un à l'autre :
-  1. sur l'appareil à jour : **Réglages › Exporter une sauvegarde (.json)** ;
-  2. envoie-toi le fichier (mail, Drive, AirDrop…) ;
-  3. sur l'autre appareil : **Réglages › Importer des cours / une sauvegarde**, puis choisis le fichier.
-- Le tableau de bord te rappelle d'exporter une sauvegarde si la dernière a plus de 7 jours.
-- **Exporter vers Google Agenda (.ics)** : à importer dans Google Agenda via *Paramètres › Importer et exporter*.
+La synchronisation passe par un **Gist secret** de ton compte GitHub : c'est le même compte que celui qui héberge l'app, et il n'y a aucun serveur à gérer.
+
+1. Sur le PC, dans l'app : **Réglages › Synchronisation PC ↔ téléphone**.
+2. Clique sur le lien de création de jeton. Il ouvre GitHub avec la case **gist** déjà cochée.
+   - Expiration : **No expiration**.
+   - Clique sur **Generate token**, puis copie le code `ghp_…`.
+3. Colle le code dans l'app et clique sur **Connecter**.
+4. Sur le téléphone, même chose avec **le même code**. Quand l'app demande quoi faire, choisis **« Utiliser le planning du cloud »**.
+
+Ensuite :
+- chaque modification est envoyée au bout d'1 à 2 secondes ;
+- l'autre appareil la récupère dès que tu ouvres l'app, puis toutes les minutes tant qu'elle est ouverte ;
+- si tu modifies les deux appareils hors ligne, les changements sont **fusionnés** : la modification la plus récente gagne et les suppressions sont respectées ;
+- l'état de la synchro est affiché en bas du menu ☰ (touche-le pour forcer une synchro).
+
+Côté sécurité :
+- le code reste sur l'appareil ;
+- il ne donne accès qu'à tes Gists, pas à tes dépôts ;
+- tu peux le révoquer sur github.com › Settings › Developer settings › Tokens.
+
+Sauvegarde de secours : **Réglages › Exporter une sauvegarde (.json)**. Export vers Google Agenda : **Exporter (.ics)**.
 
 ---
 
@@ -99,6 +113,8 @@ Pour corriger un import, recolle le bloc corrigé : la case « Remplacer les cou
 | Changer de période | flèches ‹ › ou touches ← → | flèches, ou balayage en vue Jour / 3 jours |
 
 Autres fonctions :
+- **Vue Jour = check-liste** : tu coches ce qui est fait, avec un trait rouge à l'heure actuelle. Le bouton « Grille » revient à l'affichage horaire. Touche un jour dans la semaine pour l'ouvrir.
+- **Tout tient dans l'écran** : la semaine de 7h à minuit s'affiche sans défiler (désactivable dans Réglages › Affichage).
 - **Organiser la semaine** (✨) :
   - place automatiquement sommeil, repas, sport, objectifs perso, révisions par matière et marges pour les imprévus ;
   - suit ton ordre de priorité : sommeil › études › repas › sport › objectifs perso › volley/BDE › sorties ;
@@ -114,7 +130,7 @@ Autres fonctions :
 ## 5. Technique
 
 - HTML, CSS et JavaScript, **sans compilation ni dépendance** : les fichiers se servent tels quels.
-- Données : `localStorage` (clé `mon-planning-v1`). Sauvegarde et restauration en JSON, export iCalendar (.ics).
+- Données : `localStorage` (clé `mon-planning-v1`). Synchronisation via l'API GitHub Gists (`js/sync.js`), avec horodatage par élément et suppressions mémorisées. Sauvegarde et restauration en JSON, export iCalendar (.ics).
 - PWA : `manifest.webmanifest` et `sw.js` (le réseau d'abord, le cache si hors ligne).
 - Code :
   - `js/planner.js` : organisation automatique ;

@@ -4,8 +4,11 @@ import { esc, uid, fmtD, fmtDT, fmtTime, fmtHM, parseD, parseDT, addDays, addMin
 import { expand, catById, subjectById, isSoft, findFreeSlot } from './model.js';
 import { planWeek, applyPlan } from './planner.js';
 import { weekReport, GROUPS } from './analysis.js';
-import { exportBackup, exportICS } from './io.js';
-import { renderGrid, renderMonth, renderList, calTitle, shiftCursor } from './calendar.js';
+import { exportBackup, exportICS, applyCourses, isVisio } from './io.js';
+import { connect, disconnect, syncNow, syncConfigured, syncStatus, onSyncStatus } from './sync.js';
+import { defaultCategories, routineHabits } from './seed.js';
+import { SEED_COURSES } from './seed-courses.js';
+import { renderGrid, renderMonth, renderList, renderChecklist, calTitle, shiftCursor, isDone, toggleDone } from './calendar.js';
 import { openEventEditor, openTaskEditor, openGoalEditor, openGoalProposals, openHabitEditor, openPlanDialog, openImportDialog, planTaskAuto, setEditorHooks, catOptions, daysPicker } from './editors.js';
 import { ICON, openModal, toast, confirmDialog, closeAllModals } from './ui.js';
 
@@ -16,14 +19,14 @@ try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } cat
 ui.cursor = new Date();
 // le dimanche après-midi, la vue semaine s'ouvre sur la semaine qui vient
 if (isoDow(ui.cursor) === 7 && ui.cursor.getHours() >= 12 && ui.calView === 'week') ui.cursor = addDays(dayStart(ui.cursor), 1);
-const saveUi = () => { try { localStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, calView: ui.calView, taskFilter: ui.taskFilter })); } catch (e) { /* */ } };
+const saveUi = () => { try { localStorage.setItem(UI_KEY, JSON.stringify({ view: ui.view, calView: ui.calView, taskFilter: ui.taskFilter, v2: true })); } catch (e) { /* */ } };
 
 const firstRun = load();
-if (window.innerWidth <= 820 && ui.calView === 'week' && firstRun) ui.calView = '3day';
+if (!ui.v2) { ui.calView = 'week'; ui.v2 = true; }
 
 const app = {
   rerender: () => render(),
-  goto(date, calView) { ui.cursor = date; if (calView) ui.calView = calView; ui.keepScroll = null; ui.keepScrollX = null; setView('calendar'); },
+  goto(date, calView) { ui.cursor = date; if (calView) ui.calView = calView; if (calView === 'day') ui.dayMode = 'list'; ui.keepScroll = null; ui.keepScrollX = null; setView('calendar'); },
   shift(dir) { ui.cursor = shiftCursor(ui, dir); ui.keepScrollX = null; render(); },
   newEvent(draft) { openEventEditor({ draft }); },
   editOcc(o) { if (o) openEventEditor({ occ: o }); },
@@ -34,11 +37,46 @@ setEditorHooks({ goto: app.goto, undo: app.undo });
 
 /* ---------- planning initial (première ouverture) ---------- */
 if (state.meta.needsInitialPlan) {
+  // cours issus de l'emploi du temps .ics, puis organisation des semaines jusqu'aux partiels
+  mutate('Cours initiaux', (s) => { applyCourses(s, SEED_COURSES, true); }, { undoable: false });
   const target = new Date() < parseD('2026-11-23') ? parseD('2026-11-23') : startOfWeek(new Date());
-  const plan = planWeek(state, target);
-  mutate('Planning initial', (s) => { applyPlan(s, plan); s.meta.needsInitialPlan = false; }, { undoable: false });
+  for (let w = target; w <= parseD('2027-01-04'); w = addDays(w, 7)) {
+    const plan = planWeek(state, w);
+    mutate('Planning initial', (s) => applyPlan(s, plan), { undoable: false });
+  }
+  mutate('init', (s) => { s.meta.needsInitialPlan = false; }, { undoable: false });
   ui.cursor = target;
   ui.view = 'today';
+}
+
+/* ---------- mise à jour v2 d'une installation existante ---------- */
+if (!state.meta.v2 && !state.meta.needsInitialPlan) {
+  mutate('Mise à jour v2', (s) => {
+    const defs = defaultCategories();
+    const after = { visio: 'cours', petitdej: null, hygiene: null, lessive: null };
+    for (const id of ['visio', 'petitdej', 'hygiene', 'lessive']) {
+      if (s.categories.some((c) => c.id === id)) continue;
+      const def = defs.find((c) => c.id === id);
+      const anchor = after[id] ? s.categories.findIndex((c) => c.id === after[id]) : s.categories.findIndex((c) => c.id === (id === 'petitdej' ? 'repas' : 'menage'));
+      s.categories.splice(anchor >= 0 ? anchor + (after[id] ? 1 : 0) : s.categories.length, 0, def);
+    }
+    const cours = s.categories.find((c) => c.id === 'cours');
+    if (cours) { if (cours.name === 'Cours') cours.name = 'Cours en présentiel'; if (cours.color === '#4f7cff') cours.color = '#7cb342'; }
+    const rev = s.categories.find((c) => c.id === 'revision'); if (rev && rev.color === '#16a34a') rev.color = '#4f7cff';
+    const vid = s.categories.find((c) => c.id === 'video'); if (vid && vid.color === '#f97316') vid.color = '#14b8a6';
+    for (const e of s.events) {
+      if (e.source !== 'import' || e.catId !== 'cours') continue;
+      const kind = (e.title.match(/\[(\w+)\]\s*$/) || [])[1] || '';
+      if (isVisio(e, kind)) e.catId = 'visio';
+    }
+    for (const h of routineHabits()) if (!s.habits.some((x) => x.title === h.title)) s.habits.unshift(h);
+    const today = startOfWeek(new Date());
+    const lastImport = s.events.filter((e) => e.source === 'import').map((e) => e.start).sort().pop();
+    const end = lastImport ? startOfWeek(parseD(lastImport.slice(0, 10))) : today;
+    for (let w = today, n = 0; w <= end && n < 8; w = addDays(w, 7), n++) applyPlan(s, planWeek(s, w));
+    s.meta.v2 = true;
+  }, { undoable: false });
+  setTimeout(() => toast('Mise à jour : cours visio en orange, petit-déj, douche et lessive ajoutés à ton planning.', { duration: 7000 }), 500);
 }
 
 /* ---------- thème ---------- */
@@ -109,7 +147,7 @@ function renderSidebar() {
     <nav class="nav">${NAV.map(([k, l, i]) => `<button data-nav="${k}" class="${ui.view === k ? 'active' : ''}">${i}<span>${l}</span></button>`).join('')}</nav>
     <div class="mini side-section"><div class="mini-head"><button class="btn icon ghost sm" data-mm="-1">${ICON.left}</button><span style="text-transform:capitalize">${MONTHS[ms.getMonth()]} ${ms.getFullYear()}</span><button class="btn icon ghost sm" data-mm="1">${ICON.right}</button></div>${mini}</div>
     <div class="side-section"><h4>Catégories</h4><div class="cat-filter">${s.categories.map((ct) => `<label style="--c:${ct.color}"><input type="checkbox" data-cat="${ct.id}" ${s.settings.hiddenCats.includes(ct.id) ? '' : 'checked'}><span class="sw"></span><span>${esc(ct.name)}</span></label>`).join('')}</div></div>
-    <div class="save-status ${err ? 'err' : ''}"><span class="dot"></span>${err ? 'Erreur de sauvegarde !' : `Sauvegardé${last ? ' à ' + fmtHM(last) : ''} sur cet appareil`}
+    <div class="save-status ${err || syncStatus().state === 'error' ? 'err' : ''}" data-syncline style="cursor:pointer"><span class="dot"></span>${err ? 'Erreur de sauvegarde !' : syncLabel(last)}
       ${canUndo() ? `<button class="btn ghost sm" data-undo style="margin-left:auto" title="Annuler (Ctrl+Z)">${ICON.undo}</button>` : ''}</div>`;
   sidebar.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => setView(b.dataset.nav)));
   sidebar.querySelectorAll('[data-mini]').forEach((b) => (b.onclick = () => app.goto(parseD(b.dataset.mini), ui.calView === 'month' || ui.calView === 'list' ? 'day' : ui.calView)));
@@ -117,7 +155,25 @@ function renderSidebar() {
   sidebar.querySelectorAll('[data-cat]').forEach((i) => (i.onchange = () => mutate('Filtre', (st) => {
     const h = new Set(st.settings.hiddenCats); i.checked ? h.delete(i.dataset.cat) : h.add(i.dataset.cat); st.settings.hiddenCats = [...h];
   }, { undoable: false })));
-  const u = sidebar.querySelector('[data-undo]'); if (u) u.onclick = app.undo;
+  const u = sidebar.querySelector('[data-undo]'); if (u) u.onclick = (e) => { e.stopPropagation(); app.undo(); };
+  sidebar.querySelector('[data-syncline]').onclick = () => (syncConfigured() ? syncNow() : setView('settings'));
+}
+
+function syncLabel(last) {
+  if (!syncConfigured()) return `Sauvegardé${last ? ' à ' + fmtHM(last) : ''} · non synchronisé`;
+  const st = syncStatus();
+  if (st.state === 'syncing') return 'Synchronisation…';
+  if (st.state === 'error') return 'Synchro en erreur — toucher pour réessayer';
+  if (st.state === 'offline') return 'Hors ligne — synchro en attente';
+  return `Synchronisé${st.at ? ' à ' + fmtHM(new Date(st.at)) : ''} ☁️`;
+}
+onSyncStatus(() => { renderSidebar(); if (ui.view === 'settings' && !document.querySelector('.modal-bg')) { const el = document.querySelector('[data-syncstate]'); if (el) el.innerHTML = syncStateHtml(); } });
+function syncStateHtml() {
+  const st = syncStatus();
+  if (!syncConfigured()) return '<span class="pill">Non connecté</span>';
+  const map = { ok: ['low', 'Synchronisé'], syncing: ['mid', 'Synchronisation…'], error: ['high', 'Erreur'], offline: ['mid', 'Hors ligne'], off: ['', 'Non connecté'] };
+  const [c, l] = map[st.state] || map.off;
+  return `<span class="pill ${c}">${l}${st.at ? ' · ' + fmtHM(new Date(st.at)) : ''}</span>${st.msg ? ` <span class="small muted">${esc(st.msg)}</span>` : ''}`;
 }
 
 function renderTabbar() {
@@ -143,23 +199,33 @@ fab.onclick = () => {
 
 /* ===================== CALENDRIER ===================== */
 function renderCalendarView() {
-  const views = [['day', 'Jour', 'J'], ['3day', '3 jours', '3J'], ['week', 'Semaine', 'S'], ['month', 'Mois', 'M'], ['list', 'Liste', 'L']];
   const narrow = window.innerWidth <= 820;
-  setTopbar(esc(calTitle(ui)), `
-    <div class="cal-tools" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+  const views = narrow ? [['day', 'J'], ['week', 'S'], ['month', 'M'], ['list', 'L']] : [['day', 'Jour'], ['3day', '3 jours'], ['week', 'Semaine'], ['month', 'Mois'], ['list', 'Liste']];
+  if (narrow && ui.calView === '3day') ui.calView = 'week';
+  let title = calTitle(ui);
+  if (narrow && ui.calView === 'week') { const ws = startOfWeek(ui.cursor), we = addDays(ws, 6); title = `${ws.getDate()}${ws.getMonth() !== we.getMonth() ? ' ' + MONTHS_SHORT[ws.getMonth()] : ''}–${we.getDate()} ${MONTHS_SHORT[we.getMonth()]}`; }
+  if (narrow && ui.calView === 'day') { const d = ui.cursor; title = `${DOW_SHORT[isoDow(d)]} ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`; }
+  const dayToggle = ui.calView === 'day' && ui.dayMode === 'grid' ? `<button class="btn sm" data-daylist>Liste</button>` : '';
+  setTopbar(`<span data-totoday style="cursor:pointer" title="Revenir à aujourd’hui">${esc(title)}</span>`, `
+    <div class="cal-tools" style="display:flex;gap:6px;align-items:center">
       <button class="btn icon" data-prev aria-label="Précédent">${ICON.left}</button>
-      <button class="btn sm" data-today>Aujourd’hui</button>
+      ${narrow ? '' : '<button class="btn sm" data-today>Aujourd’hui</button>'}
       <button class="btn icon" data-next aria-label="Suivant">${ICON.right}</button>
-      <div class="seg">${views.map(([k, l, sh]) => `<button data-cv="${k}" class="${ui.calView === k ? 'active' : ''}">${narrow ? sh : l}</button>`).join('')}</div>
-      <button class="btn primary sm" data-plan title="Organiser automatiquement la semaine">${ICON.sparkle}<span class="hide-m">Organiser</span></button>
+      ${dayToggle}
+      <div class="seg">${views.map(([k, l]) => `<button data-cv="${k}" class="${ui.calView === k ? 'active' : ''}">${l}</button>`).join('')}</div>
+      <button class="btn primary ${narrow ? 'icon' : 'sm'}" data-plan title="Organiser automatiquement la semaine">${ICON.sparkle}<span class="hide-m">Organiser</span></button>
     </div>`);
+  const goToday = () => { ui.cursor = new Date(); ui.keepScroll = null; ui.keepScrollX = null; render(); };
   topbar.querySelector('[data-prev]').onclick = () => app.shift(-1);
   topbar.querySelector('[data-next]').onclick = () => app.shift(1);
-  topbar.querySelector('[data-today]').onclick = () => { ui.cursor = new Date(); ui.keepScroll = null; ui.keepScrollX = null; render(); };
-  topbar.querySelectorAll('[data-cv]').forEach((b) => (b.onclick = () => { ui.calView = b.dataset.cv; ui.keepScrollX = null; saveUi(); render(); }));
+  topbar.querySelector('[data-totoday]').onclick = goToday;
+  const tb = topbar.querySelector('[data-today]'); if (tb) tb.onclick = goToday;
+  const dl = topbar.querySelector('[data-daylist]'); if (dl) dl.onclick = () => { ui.dayMode = 'list'; render(); };
+  topbar.querySelectorAll('[data-cv]').forEach((b) => (b.onclick = () => { if (b.dataset.cv === 'day') ui.dayMode = 'list'; ui.calView = b.dataset.cv; ui.keepScrollX = null; saveUi(); render(); }));
   topbar.querySelector('[data-plan]').onclick = () => openPlanDialog(ui.cursor);
   if (ui.calView === 'month') renderMonth(view, ui, app);
   else if (ui.calView === 'list') renderList(view, ui, app);
+  else if (ui.calView === 'day' && ui.dayMode !== 'grid') renderChecklist(view, ui, app);
   else renderGrid(view, ui, app);
 }
 
@@ -194,7 +260,7 @@ function renderToday() {
   const revDone = weekOcc.filter((o) => o.catId === 'revision' && o.end <= now && !o.ev.skipped).reduce((t, o) => t + diffMin(o.start, o.end), 0);
   const sportAll = weekOcc.filter((o) => o.catId === 'sport');
   const tasksWeek = s.tasks.filter((t) => t.due && t.due >= fmtD(ws) && t.due < fmtD(we));
-  const backupOld = Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
+  const backupOld = !syncConfigured() && Date.now() - (s.settings.lastBackup || 0) > 7 * 864e5;
 
   // tâches prioritaires
   const P = { 'élevée': 0, 'moyenne': 1, 'faible': 2 };
@@ -209,7 +275,7 @@ function renderToday() {
   const issues = rep.items.filter((i) => i.level !== 'ok').slice(0, 5);
 
   view.innerHTML = `<div class="page">
-    ${backupOld ? `<div class="banner" style="margin:0 0 14px">💾 Tes données sont stockées sur cet appareil. Pense à exporter une sauvegarde (et à l’importer sur ton autre appareil).<button class="btn sm primary" data-backup style="margin-left:auto">Exporter</button></div>` : ''}
+    ${backupOld ? `<div class="banner" style="margin:0 0 14px">☁️ Active la synchronisation pour retrouver ton planning sur ton PC et ton téléphone.<button class="btn sm primary" data-gosync style="margin-left:auto">Activer</button></div>` : ''}
     <div class="page-head"><div><h1 style="text-transform:capitalize">${fmtDayLong(now)}</h1><p>${todayOcc.filter((o) => catById(s, o.catId).group === 'etudes').length} créneaux d’études aujourd’hui · ${rep.conflicts.length ? `<span style="color:var(--danger)">${rep.conflicts.length} conflit(s) cette semaine</span>` : 'aucun conflit cette semaine'}</p></div></div>
     <div class="cards">
       <div class="card span-4 next-card">
@@ -232,8 +298,8 @@ function renderToday() {
         ${prio.length ? prio.map((t) => taskRow(t, true)).join('') : '<div class="empty">Aucune tâche en attente 🎉</div>'}
       </div>
       <div class="card span-5">
-        <h2>Ma journée <button class="btn ghost sm" data-goto-day>Calendrier</button></h2>
-        <div class="tl">${todayOcc.length ? todayOcc.map((o) => `<div class="tl-item ${o.end <= now ? 'past' : ''} ${o.start <= now && o.end > now ? 'now' : ''}" data-key="${esc(o.key)}" style="--c:${catById(s, o.catId).color}"><span class="h">${sameDay(o.start, today) ? fmtTime(o.start) : '…'}</span><span class="b"></span><div><div class="t">${esc(o.title)}</div><div class="s">${fmtTime(o.start)} – ${fmtTime(o.end)}${o.ev.location ? ' · ' + esc(o.ev.location) : ''}</div></div></div>`).join('') : '<div class="empty">Journée libre.</div>'}</div>
+        <h2>Ma journée <button class="btn ghost sm" data-goto-day>Check-liste</button></h2>
+        <div class="tl">${todayOcc.length ? todayOcc.filter((o) => !/^sommeil$/i.test(o.title)).map((o) => `<div class="tl-item ${o.end <= now && !isDone(o) ? 'past' : ''} ${isDone(o) ? 'done' : ''} ${o.start <= now && o.end > now ? 'now' : ''}" data-key="${esc(o.key)}" style="--c:${catById(s, o.catId).color}"><button class="cl-chk sm" data-done="${esc(o.key)}">${isDone(o) ? ICON.tick : ''}</button><span class="h">${sameDay(o.start, today) ? fmtTime(o.start) : '…'}</span><span class="b"></span><div><div class="t">${esc(o.title)}</div><div class="s">${fmtTime(o.start)} – ${fmtTime(o.end)}${o.ev.location ? ' · ' + esc(o.ev.location) : ''}</div></div></div>`).join('') : '<div class="empty">Journée libre.</div>'}</div>
       </div>
       <div class="card span-7">
         <h2>Temps prévu par catégorie (semaine)</h2>
@@ -252,12 +318,13 @@ function renderToday() {
   bindCommon(view);
   const occByKey = new Map(todayOcc.map((o) => [o.key, o]));
   view.querySelectorAll('.tl-item').forEach((el) => (el.onclick = () => app.editOcc(occByKey.get(el.dataset.key))));
+  view.querySelectorAll('.tl [data-done]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); toggleDone(occByKey.get(b.dataset.done)); }));
   view.querySelector('[data-goto-day]').onclick = () => app.goto(new Date(), 'day');
   view.querySelector('[data-goto-tasks]').onclick = () => setView('tasks');
   view.querySelector('[data-goto-goals]').onclick = () => setView('goals');
   view.querySelector('[data-goto-review]').onclick = () => setView('review');
   view.querySelectorAll('[data-goal]').forEach((el) => (el.onclick = () => openGoalEditor(el.dataset.goal)));
-  const bk = view.querySelector('[data-backup]'); if (bk) bk.onclick = doBackup;
+  const bk = view.querySelector('[data-gosync]'); if (bk) bk.onclick = () => { setView('settings'); setTimeout(() => document.getElementById('sync')?.scrollIntoView({ behavior: 'smooth' }), 50); };
 }
 
 /** semaine « de travail » : le dimanche après-midi, on regarde déjà la semaine qui vient */
@@ -442,7 +509,8 @@ function renderSettings() {
         ${F('Hauteur d’une heure (px)', inp('settings.hourHeight', 'number', 'min="30" max="120" step="2"'))}
         ${F('Thème', `<select data-set="settings.theme" data-type="str">${[['auto', 'Automatique (système)'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, l]) => `<option value="${k}" ${st.theme === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
       </div>
-      <label class="check-line" style="margin-top:12px">${inp('settings.monthHideRoutine', 'checkbox')} Masquer sommeil, repas et rangement dans la vue Mois</label>
+      <label class="check-line" style="margin-top:12px">${inp('settings.fitScreen', 'checkbox')} Afficher toute la journée dans l’écran, sans défiler (la hauteur des heures s’adapte)</label>
+      <label class="check-line" style="margin-top:8px">${inp('settings.monthHideRoutine', 'checkbox')} Masquer sommeil, repas et rangement dans la vue Mois</label>
     </section>
 
     <section class="card set-sec"><h2>Catégories</h2><p>Couleur, nom et famille (la famille sert aux priorités et aux statistiques).</p>
@@ -491,7 +559,21 @@ function renderSettings() {
       <label class="check-line" style="margin-top:8px">${inp('settings.autoNaps', 'checkbox')} Proposer une sieste de 20 min après le déjeuner si la nuit précédente fait moins de 7 h</label>
     </section>
 
-    <section class="card set-sec"><h2>Données</h2><p>Tout est enregistré automatiquement sur cet appareil. Pour passer du PC au téléphone : exporte une sauvegarde ici, puis importe-la sur l’autre appareil.</p>
+    <section class="card set-sec" id="sync"><h2>Synchronisation PC ↔ téléphone</h2>
+      <p>Tes données sont copiées dans un espace privé de ton compte GitHub (un « Gist » secret) : gratuit, sans serveur. Chaque modification est envoyée en quelques secondes et récupérée sur l’autre appareil dès que tu ouvres l’app.</p>
+      <div data-syncstate style="margin-bottom:12px">${syncStateHtml()}</div>
+      ${syncConfigured() ? `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-syncnow>↻ Synchroniser maintenant</button><button class="btn danger" data-syncoff>Déconnecter cet appareil</button></div>` : `
+      <ol style="margin:0 0 12px;padding-left:20px;line-height:1.7;font-size:13.5px">
+        <li>Ouvre <a href="https://github.com/settings/tokens/new?scopes=gist&description=Mon%20Planning" target="_blank" rel="noopener">ce lien de création de jeton GitHub</a> (connecté à ton compte).</li>
+        <li>« Expiration » : choisis <b>No expiration</b>. La case <b>gist</b> est déjà cochée — ne coche rien d’autre.</li>
+        <li>Clique <b>Generate token</b> en bas, puis copie le code qui commence par <code>ghp_</code>.</li>
+        <li>Colle-le ci-dessous et clique <b>Connecter</b>. Fais la même chose sur ton autre appareil (avec le même code).</li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="text" data-token placeholder="ghp_…" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:220px;font-family:ui-monospace,monospace"><button class="btn primary" data-connect>Connecter</button></div>
+      <p class="small faint" style="margin-top:8px">Le code reste uniquement sur cet appareil. Il ne donne accès qu’à tes Gists, pas à tes dépôts. Tu peux le révoquer à tout moment sur GitHub.</p>`}
+    </section>
+
+    <section class="card set-sec"><h2>Données</h2><p>Tout est enregistré automatiquement sur cet appareil${'' }. Sauvegarde de secours : exporte un fichier de temps en temps.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" data-import>${ICON.upload} Importer des cours / une sauvegarde</button>
         <button class="btn" data-backup>${ICON.download} Exporter une sauvegarde (.json)</button>
@@ -553,6 +635,31 @@ function renderSettings() {
     if (!(await confirmDialog('Effacer toutes tes données et revenir à la configuration de départ ? Exporte une sauvegarde avant si besoin.', { ok: 'Tout réinitialiser', danger: true }))) return;
     resetAll(); toast('Données réinitialisées', { action: 'Annuler', onAction: app.undo });
   };
+  const sn = view.querySelector('[data-syncnow]'); if (sn) sn.onclick = () => syncNow();
+  const so = view.querySelector('[data-syncoff]'); if (so) so.onclick = async () => { if (await confirmDialog('Déconnecter cet appareil ? Tes données restent ici et dans le cloud, mais ne seront plus synchronisées.', { ok: 'Déconnecter' })) { disconnect(); render(); } };
+  const cb = view.querySelector('[data-connect]');
+  if (cb) cb.onclick = async () => {
+    const token = view.querySelector('[data-token]').value.trim();
+    if (!/^(ghp_|github_pat_)/.test(token)) { toast('Colle le code GitHub qui commence par ghp_'); return; }
+    cb.disabled = true; cb.textContent = 'Connexion…';
+    try {
+      const r = await connect(token);
+      if (r.found) {
+        const choice = await new Promise((resolve) => {
+          let done = false;
+          openModal({ title: 'Un planning existe déjà dans le cloud', body: `<p style="margin:0;line-height:1.5">C’est sûrement celui de ton autre appareil. Que veux-tu faire ?</p>
+            <button class="btn primary" style="height:44px;justify-content:flex-start" data-m="remote">Utiliser le planning du cloud sur cet appareil <span class="small" style="opacity:.8">(recommandé pour le 2ᵉ appareil)</span></button>
+            <button class="btn" style="height:44px;justify-content:flex-start" data-m="merge">Fusionner les deux</button>
+            <button class="btn" style="height:44px;justify-content:flex-start" data-m="local">Remplacer le cloud par cet appareil</button>`,
+            onMount: (m, cl) => m.querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => { done = true; resolve(b.dataset.m); cl(); })), onClose: () => { if (!done) resolve(null); } });
+        });
+        if (!choice) { cb.disabled = false; cb.textContent = 'Connecter'; return; }
+        await connect(token, choice);
+      }
+      toast('Appareil connecté : synchronisation activée ☁️');
+      render();
+    } catch (e) { toast(e.message || 'Connexion impossible', { duration: 6000 }); cb.disabled = false; cb.textContent = 'Connecter'; }
+  };
   const ins = view.querySelector('[data-install]');
   if (ins) ins.onclick = async () => { deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); };
 }
@@ -560,6 +667,7 @@ function renderSettings() {
 function habitSummary(h) {
   const days = h.days.length === 7 ? 'tous les jours' : h.days.slice().sort().map((d) => DOW_SHORT[d]).join(' ');
   if (h.type === 'fixed') return `${days} à ${h.start}`;
+  if (h.type === 'with') return `${h.times || 1}×/semaine, en même temps que « ${h.with} »`;
   if (h.type === 'weekly') return `${h.times}×/semaine (${days}) entre ${h.window[0]} et ${h.window[1]}${h.weekendWindow ? `, week-end ${h.weekendWindow[0]}–${h.weekendWindow[1]}` : ''}`;
   return `${days}, entre ${h.window[0]} et ${h.window[1]}`;
 }
@@ -580,13 +688,16 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ---------- ligne « maintenant » + rafraîchissement ---------- */
+let lastMinute = new Date().getMinutes();
 setInterval(() => {
+  const m = new Date().getMinutes();
+  if (m === lastMinute) return;
+  lastMinute = m;
   if (document.querySelector('.modal-bg') || document.querySelector('.ev.dragging')) return;
-  if (ui.view === 'today') render();
-  else if (ui.view === 'calendar') { const line = document.querySelector('.now-line'); if (line) { const m = new Date().getHours() * 60 + new Date().getMinutes() - state.settings.dayStart * 60; line.style.top = (m / 60) * (state.settings.hourHeight || 52) + 'px'; } }
-}, 60000);
-let lastW = window.innerWidth;
-window.addEventListener('resize', () => { if ((lastW <= 820) !== (window.innerWidth <= 820)) { lastW = window.innerWidth; render(); } });
+  if (ui.view === 'today' || ui.view === 'calendar') render();
+}, 5000);
+let rz = null;
+window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (!document.querySelector('.ev.dragging')) render(); }, 150); });
 
 /* ---------- PWA ---------- */
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

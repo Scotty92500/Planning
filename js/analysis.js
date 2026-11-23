@@ -1,6 +1,7 @@
 // Bilan de la semaine : ce qui manque, surcharges, conflits, temps par catégorie
 import { addDays, fmtD, diffMin, isoDow, isWeekend, DOW_LONG, fmtDur, parseD, dayStart } from './util.js';
 import { expand, catById, conflicts, isSoft } from './model.js';
+import { examMap } from './planner.js';
 import { GROUPS } from './seed.js';
 
 export function minutesByGroup(s, occs, ws, we) {
@@ -91,7 +92,7 @@ export function weekReport(s, ws) {
   // 7. Surcharge
   const heavy = [];
   for (const d of days) {
-    const work = onDay(d, (o) => ['cours', 'revision'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
+    const work = onDay(d, (o) => ['cours', 'visio', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
     if (work > st.maxWorkPerDay) heavy.push(`${DOW_LONG[isoDow(d)]} (${fmtDur(work)})`);
   }
   if (heavy.length) items.push({ level: 'warn', title: 'Journées surchargées', detail: `Plus de ${fmtDur(st.maxWorkPerDay)} de cours + travail : ${heavy.join(', ')}.`, action: 'settings' });
@@ -105,15 +106,14 @@ export function weekReport(s, ws) {
   if (cf.length) items.push({ level: 'bad', title: `${cf.length} conflit(s) d'horaires`, detail: cf.slice(0, 4).map(([a, b]) => `« ${a.title} » / « ${b.title} »`).join(' · '), action: 'conflicts' });
 
   // 10. Rangement, batch cooking
-  for (const h of s.habits.filter((h) => h.enabled && ['menage', 'repas'].includes(catById(s, h.catId).group) && h.type === 'weekly')) {
+  for (const h of s.habits.filter((h) => h.enabled && ['menage', 'repas'].includes(catById(s, h.catId).group) && ['weekly', 'with'].includes(h.type))) {
     if (!inWeek.some((o) => o.title === h.title)) items.push({ level: 'warn', title: `« ${h.title} » absent cette semaine`, detail: '', action: 'plan' });
   }
 
   // 11. Informations manquantes
   const info = [];
   if (!st.toeflDate) info.push('la date de ta certification TOEFL (pour lancer l’entraînement 2 semaines avant)');
-  const exams = s.subjects.filter((x) => x.revise && x.weight > 0);
-  if (!exams.some((x) => x.examDate)) info.push('les dates de tes CC et partiels par matière (Réglages › Matières)');
+  if (!examMap(s).size) info.push('les dates de tes CC et partiels par matière (Réglages › Matières)');
   for (const h of s.habits.filter((h) => h.enabled && /confirmer/i.test(h.note || ''))) info.push(`${h.title} : ${h.note}`);
   for (const e of s.events.filter((e) => /confirmer/i.test(e.notes || '') && e.source !== 'auto')) info.push(`${e.title} : ${e.notes}`);
   for (const g of s.goals.filter((g) => g.active !== false && !g.due)) info.push(`une date limite pour « ${g.title} »`);

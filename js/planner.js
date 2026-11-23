@@ -1,7 +1,27 @@
 // Organisation intelligente de la semaine
 // Ordre : événements fixes conservés → habitudes (par priorité de catégorie) → siestes → objectifs perso → révisions
 import { uid, addDays, atMin, hm2min, fmtDT, fmtD, isoDow, isWeekend, diffMin, parseD, dayStart } from './util.js';
-import { expand, catById, groupRank, freeInWindow, workWindow, subjectById } from './model.js';
+import { expand, catById, groupRank, freeInWindow, workWindow, subjectById, isParallel } from './model.js';
+
+const FERIES = ['01-01', '05-01', '05-08', '07-14', '08-15', '11-01', '11-11', '12-25'];
+const isFerie = (d) => FERIES.includes(fmtD(d).slice(5));
+
+/** dates d'examen par matière (événements « Examens & CC » importés + date saisie dans Réglages) */
+export function examMap(s) {
+  const m = new Map();
+  const add = (id, d) => { if (!id || !d) return; if (!m.has(id)) m.set(id, []); m.get(id).push(d); };
+  for (const e of s.events) if (e.catId === 'examen') add(e.subjectId, e.start.slice(0, 10));
+  for (const x of s.subjects) add(x.id, x.examDate);
+  for (const v of m.values()) v.sort();
+  return m;
+}
+const daysTo = (dateStr, day) => (parseD(dateStr) - dayStart(day)) / 864e5;
+/** une épreuve dans les `n` prochains jours (exclut le jour même) ? */
+export function examWithin(s, day, n, exams = examMap(s)) {
+  for (const list of exams.values()) if (list.some((d) => { const k = daysTo(d, day); return k > 0 && k <= n; })) return true;
+  if (s.settings.toeflDate) { const k = daysTo(s.settings.toeflDate, day); if (k > 0 && k <= 3) return true; }
+  return false;
+}
 
 const PRIO_W = { 'élevée': 3, 'moyenne': 2, 'faible': 1 };
 const WHEN = { matin: [['08:00', '12:00']], aprem: [['13:30', '19:00']], soir: [['19:00', '22:15']] };
@@ -12,12 +32,12 @@ function ctx(s, weekStart, { keepAuto = false } = {}) {
   const isRemovable = (o) => !keepAuto && o.ev.source === 'auto' && !o.ev.pinned && !o.ev.recur && o.start >= ws && o.start < we;
   const kept = occs.filter((o) => !isRemovable(o));
   const removed = [...new Set(occs.filter(isRemovable).map((o) => o.ev.id))];
-  const busy = kept.map((o) => [o.start.getTime(), o.end.getTime()]);
+  const busy = kept.filter((o) => !isParallel(s, o)).map((o) => [o.start.getTime(), o.end.getTime()]);
   const days = [...Array(7)].map((_, i) => addDays(ws, i));
   const created = [];
-  const place = (ev) => {
+  const place = (ev, parallel = false) => {
     created.push(ev);
-    busy.push([ev._s.getTime(), ev._e.getTime()]);
+    if (!parallel) busy.push([ev._s.getTime(), ev._e.getTime()]);
   };
   const hasSimilar = (day, title, catId) => kept.some((o) => fmtD(o.start) === fmtD(day) && o.title === title && o.catId === catId);
   return { ws, we, kept, removed, busy, days, created, place, hasSimilar };
@@ -77,7 +97,7 @@ function subtract(free, busy) {
 }
 
 function planHabits(s, c, warnings) {
-  const habits = s.habits.filter((h) => h.enabled);
+  const habits = s.habits.filter((h) => h.enabled && h.type !== 'with');
   const sorted = [...habits].sort((x, y) => groupRank(s, catById(s, x.catId).group) - groupRank(s, catById(s, y.catId).group) || (x.type === 'fixed' ? -1 : 1));
   for (const h of sorted) {
     if (h.type === 'weekly') {
@@ -103,6 +123,24 @@ function planHabits(s, c, warnings) {
     }
   }
 }
+/** habitude faite en même temps qu'une autre (ex. lessive pendant la musculation) */
+function planWithHabits(s, c, warnings) {
+  for (const h of s.habits.filter((x) => x.enabled && x.type === 'with')) {
+    const already = c.kept.filter((o) => o.title === h.title && o.catId === h.catId && o.start >= c.ws && o.start < c.we).length;
+    let need = (h.times || 1) - already;
+    if (need <= 0) continue;
+    const hosts = [...c.kept.map((o) => ({ title: o.title, s: o.start })), ...c.created.map((e) => ({ title: e.title, s: e._s }))]
+      .filter((o) => o.title === h.with && o.s >= c.ws && o.s < c.we && (h.days || [1, 2, 3, 4, 5, 6, 7]).includes(isoDow(o.s)))
+      .sort((a, b) => a.s - b.s);
+    for (const host of hosts) {
+      if (need <= 0) break;
+      c.place(mk(h.title, h.catId, host.s, new Date(host.s.getTime() + h.duration * 60000), { habitId: h.id, notes: h.note || '' }), !!catById(s, h.catId).parallel);
+      need--;
+    }
+    if (need > 0) warnings.push(`« ${h.title} » : pas de séance « ${h.with} » cette semaine pour la caser.`);
+  }
+}
+
 function placeHabitWeekly(c, h, day) {
   const [a, b] = habitWindow(h, day);
   const free = subtract([[atMin(day, a).getTime(), atMin(day, b).getTime()]], c.busy);
@@ -130,6 +168,7 @@ function planNaps(s, c) {
 }
 
 function goalWindows(s, g, day) {
+  if (examWithin(s, day, 7)) return (g.when && WHEN[g.when] ? WHEN[g.when] : isWeekend(day) ? s.settings.perso.weekend : s.settings.perso.weekday).filter((w) => hm2min(w[0]) < 1200);
   const base = g.when && WHEN[g.when] ? WHEN[g.when] : isWeekend(day) ? s.settings.perso.weekend : s.settings.perso.weekday;
   const free = s.settings.perso.freeEvenings || [];
   return free.includes(isoDow(day)) ? base.filter((w) => hm2min(w[0]) < 1200) : base;
@@ -187,13 +226,18 @@ function planStudy(s, c, warnings) {
   let lastSubj = null;
   const tasks = s.tasks.filter((t) => t.status !== 'terminé' && !t.eventId && t.catId === 'revision' && (t.estimate || 0) >= 15)
     .map((t) => ({ t, left: t.estimate })).sort((a, b) => (a.t.due || '9999').localeCompare(b.t.due || '9999') || (PRIO_W[b.t.priority] - PRIO_W[a.t.priority]));
-  const subjects = s.subjects.filter((x) => x.revise && x.weight > 0);
+  const exams = examMap(s);
+  const subjects = s.subjects.filter((x) => (x.revise && x.weight > 0) || exams.has(x.id));
   const pickSubject = (day) => {
     let best = null, bs = -1;
     for (const sub of subjects) {
-      let w = sub.weight;
-      if (sub.id === 'toefl' && st.toeflDate) { const dd = (parseD(st.toeflDate) - day) / 864e5; if (dd >= 0 && dd <= 14) w = 4; }
-      if (sub.examDate) { const dd = (parseD(sub.examDate) - day) / 864e5; if (dd >= 0 && dd <= 3) w *= 3; else if (dd >= 0 && dd <= 14) w *= 2; }
+      let w = Math.max(sub.weight || 0, exams.has(sub.id) ? 1 : 0);
+      if (sub.id === 'toefl') {
+        const dd = st.toeflDate ? daysTo(st.toeflDate, day) : -1;
+        if (dd > 0 && dd <= 14) w = 4; else if (st.toeflDate && dd <= 0) w = 0.5;
+      }
+      const next = (exams.get(sub.id) || []).find((d) => daysTo(d, day) > 0);
+      if (next) { const dd = daysTo(next, day); if (dd <= 3) w *= 3; else if (dd <= 14) w *= 2; }
       const sc = w / (1 + (alloc.get(sub.id) || 0) / 60) * (sub.id === lastSubj ? 0.45 : 1);
       if (sc > bs) { bs = sc; best = sub; }
     }
@@ -202,11 +246,13 @@ function planStudy(s, c, warnings) {
   let skippedWeekdays = false;
   for (const day of c.days) {
     const we = isWeekend(day);
-    if (!we && st.studyOnlyIfCourses && !hasCourses) { skippedWeekdays = true; continue; }
+    if (isFerie(day)) continue;
+    const rush = examWithin(s, day, 10, exams);
+    if (!we && st.studyOnlyIfCourses && !hasCourses && !rush) { skippedWeekdays = true; continue; }
     const win = workWindow(s, day);
     const a = atMin(day, hm2min(win[0])).getTime(), b = atMin(day, hm2min(win[1])).getTime();
     // budget de travail du jour (cours + révisions)
-    const courseMin = c.kept.filter((o) => fmtD(o.start) === fmtD(day) && ['cours', 'revision'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
+    const courseMin = c.kept.filter((o) => fmtD(o.start) === fmtD(day) && ['cours', 'visio', 'revision', 'examen'].includes(o.catId)).reduce((t, o) => t + diffMin(o.start, o.end), 0);
     let budget = st.maxWorkPerDay - courseMin;
     let free = subtract([[a, b]], c.busy);
     // marge pour les imprévus (en semaine)
@@ -217,6 +263,13 @@ function planStudy(s, c, warnings) {
         c.place(mk('Marge imprévus', 'libre', sDate, e, { notes: 'Plage gardée libre pour les imprévus' }));
         free = subtract([[a, b]], c.busy);
       }
+    }
+    // semaine avant un examen : on travaille aussi après le dîner
+    const busyEvening = c.kept.some((o) => fmtD(o.start) === fmtD(day) && ['asso', 'sorties'].includes(catById(s, o.catId).group) && o.end.getHours() >= 20);
+    if (examWithin(s, day, 7, exams) && !busyEvening && !['12-24', '12-31'].includes(fmtD(day).slice(5))) {
+      const ea = atMin(day, hm2min('20:45')).getTime(), eb = atMin(day, hm2min('22:10')).getTime();
+      free = [...free, ...subtract([[ea, eb]], c.busy)];
+      budget += 90;
     }
     for (const [fs, fe] of free) {
       let cur = fs;
@@ -242,7 +295,7 @@ function planStudy(s, c, warnings) {
       }
     }
   }
-  if (skippedWeekdays) warnings.push("Les révisions en semaine n'ont pas été placées : importe d'abord tes cours de la semaine.");
+  if (skippedWeekdays) warnings.push("Aucun cours importé cette semaine (vacances ?) : les révisions en semaine n'ont pas été placées. Importe tes cours, ou ajoute des créneaux de révision à la main.");
 }
 
 /** Calcule la proposition de planning pour la semaine (sans rien modifier) */
@@ -250,6 +303,7 @@ export function planWeek(s, weekStart) {
   const c = ctx(s, weekStart);
   const warnings = [];
   planHabits(s, c, warnings);
+  planWithHabits(s, c, warnings);
   planNaps(s, c);
   planGoals(s, c, s.goals.filter((g) => g.active !== false && g.weeklyMinutes > 0 && (!g.due || parseD(g.due) >= c.ws)));
   planStudy(s, c, warnings);

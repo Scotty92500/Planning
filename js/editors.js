@@ -203,7 +203,7 @@ export function openTaskEditor(id = null, preset = {}) {
       close();
       const dur = x.estimate || 60;
       const start = findFreeSlot(state, dur, roundUp(new Date())) || roundUp(new Date());
-      openEventEditor({ draft: { title: x.title, catId: x.catId === 'cours' ? 'revision' : x.catId, subjectId: x.subjectId, start, end: addMin(start, dur), taskId: tid } });
+      openEventEditor({ draft: { title: x.title, catId: ['cours', 'visio'].includes(x.catId) ? 'revision' : x.catId, subjectId: x.subjectId, start, end: addMin(start, dur), taskId: tid } });
     };
     const del = m.querySelector('[data-del]');
     if (del) del.onclick = async () => {
@@ -223,7 +223,7 @@ export function planTaskAuto(tid) {
   const start = findFreeSlot(state, dur, roundUp(new Date()), until);
   if (!start) { toast(t.due ? 'Aucun créneau libre avant l’échéance — choisis-le à la main.' : 'Aucun créneau libre trouvé dans les 3 semaines.'); return; }
   mutate('Planifier tâche', (st) => {
-    st.events.push({ id: uid(), title: t.title, catId: t.catId === 'cours' ? 'revision' : t.catId, subjectId: t.subjectId || '', start: fmtDT(start), end: fmtDT(addMin(start, dur)), location: '', notes: t.notes || '', source: 'manual', taskId: t.id });
+    st.events.push({ id: uid(), title: t.title, catId: ['cours', 'visio'].includes(t.catId) ? 'revision' : t.catId, subjectId: t.subjectId || '', start: fmtDT(start), end: fmtDT(addMin(start, dur)), location: '', notes: t.notes || '', source: 'manual', taskId: t.id });
     const tt = st.tasks.find((x) => x.id === tid); if (tt.status === 'à faire') tt.status = 'en cours';
   });
   toast(`Planifié ${fmtDayLong(start)} à ${fmtHM(start)}`, { action: 'Voir', onAction: () => hooks.goto(start, 'day') });
@@ -317,8 +317,10 @@ export function openHabitEditor(id = null) {
       <label class="field"><span>Type</span><select name="type">
         <option value="fixed" ${h.type === 'fixed' ? 'selected' : ''}>Heure fixe</option>
         <option value="flex" ${h.type === 'flex' ? 'selected' : ''}>Flexible, chaque jour coché</option>
-        <option value="weekly" ${h.type === 'weekly' ? 'selected' : ''}>X fois par semaine</option></select></label>
+        <option value="weekly" ${h.type === 'weekly' ? 'selected' : ''}>X fois par semaine</option>
+        <option value="with" ${h.type === 'with' ? 'selected' : ''}>En même temps qu’une autre habitude</option></select></label>
     </div>
+    <label class="field t-with"><span>Pendant</span><select name="with">${[...new Set(state.habits.filter((x) => x.id !== id && x.type !== 'with').map((x) => x.title))].map((t) => `<option ${t === h.with ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     <div class="field"><span class="dlabel">Jours</span>${daysPicker('hd', h.days)}</div>
     <div class="frow">
       <label class="field t-fixed"><span>Heure de début</span><input type="time" name="start" value="${esc(h.start || '08:00')}"></label>
@@ -344,15 +346,16 @@ export function openHabitEditor(id = null) {
     const sync = () => {
       const t = f('type').value;
       m.querySelectorAll('.t-fixed').forEach((x) => (x.style.display = t === 'fixed' ? '' : 'none'));
-      m.querySelectorAll('.t-flex').forEach((x) => (x.style.display = t !== 'fixed' ? '' : 'none'));
-      m.querySelectorAll('.t-weekly').forEach((x) => (x.style.display = t === 'weekly' ? '' : 'none'));
+      m.querySelectorAll('.t-flex').forEach((x) => (x.style.display = t === 'flex' || t === 'weekly' ? '' : 'none'));
+      m.querySelectorAll('.t-weekly').forEach((x) => (x.style.display = t === 'weekly' || t === 'with' ? '' : 'none'));
+      m.querySelectorAll('.t-with').forEach((x) => (x.style.display = t === 'with' ? '' : 'none'));
       m.querySelector('.dlabel').textContent = t === 'weekly' ? 'Jours possibles' : t === 'fixed' ? 'Jours (jour où ça commence)' : 'Jours';
     };
     f('type').addEventListener('change', sync); sync();
     m.querySelector('[data-save]').onclick = () => {
       const t = f('type').value;
       const ordered = t === 'weekly' && id ? [...h.days.filter((d) => readDays(m, 'hd').includes(d)), ...readDays(m, 'hd').filter((d) => !h.days.includes(d))] : readDays(m, 'hd');
-      const x = { title: f('title').value.trim() || 'Habitude', catId: f('catId').value, type: t, days: ordered, start: f('start').value, window: [f('w0').value || '08:00', f('w1').value || '20:00'], preferred: f('pref').value || f('w0').value, weekendWindow: f('ww0').value && f('ww1').value ? [f('ww0').value, f('ww1').value] : undefined, duration: +f('duration').value || 30, minDuration: Math.min(+f('minDuration').value || +f('duration').value, +f('duration').value), times: +f('times').value || 1, note: f('note').value.trim(), enabled: f('enabled').checked };
+      const x = { title: f('title').value.trim() || 'Habitude', catId: f('catId').value, type: t, days: ordered, start: f('start').value, window: [f('w0').value || '08:00', f('w1').value || '20:00'], preferred: f('pref').value || f('w0').value, weekendWindow: f('ww0').value && f('ww1').value ? [f('ww0').value, f('ww1').value] : undefined, duration: +f('duration').value || 30, minDuration: Math.min(+f('minDuration').value || +f('duration').value, +f('duration').value), times: +f('times').value || 1, with: f('with').value || undefined, note: f('note').value.trim(), enabled: f('enabled').checked };
       mutate('Habitude', (st) => { if (id) Object.assign(st.habits.find((y) => y.id === id), x); else st.habits.push({ id: uid(), ...x }); });
       close(); toast('Habitude enregistrée — relance « Organiser la semaine » pour l’appliquer');
     };
@@ -394,14 +397,27 @@ export function openPlanDialog(weekStart) {
 /* ===================== IMPORT ===================== */
 export function openImportDialog() {
   const example = `{"format":"edt-cours","events":[{"title":"Algèbre linéaire","kind":"TD","start":"2026-11-23T10:00","end":"2026-11-23T11:30","location":"NCHA-108"}]}`;
-  const body = `<p style="margin:0;line-height:1.5">Envoie la capture de ton emploi du temps à Claude : il te renvoie un bloc de texte à coller ici. Tu peux aussi charger un fichier <code>.json</code> (import de cours ou sauvegarde complète).</p>
+  const body = `<p style="margin:0;line-height:1.5">Charge le fichier <b>.ics</b> de ton emploi du temps, ou colle le bloc de texte que Claude t’a renvoyé à partir d’une capture. Une sauvegarde complète (<code>.json</code>) fonctionne aussi.</p>
     <textarea name="txt" rows="8" placeholder='${esc(example)}' style="font-family:ui-monospace,monospace;font-size:12px"></textarea>
-    <div class="frow"><label class="btn" style="position:relative;overflow:hidden">${ICON.upload} Choisir un fichier<input type="file" accept=".json,application/json" style="position:absolute;inset:0;opacity:0;cursor:pointer"></label></div>
+    <div class="frow"><label class="btn" style="position:relative;overflow:hidden">${ICON.upload} Choisir un fichier<input type="file" accept=".ics,.json,text/calendar,application/json" style="position:absolute;inset:0;opacity:0;cursor:pointer"></label></div>
+    <div class="frow"><label class="field"><span>Importer à partir du</span><input type="date" name="from" value="${fmtD(startOfWeek(new Date()))}"></label>
+      <label class="field"><span>Jusqu’au (inclus, optionnel)</span><input type="date" name="to" value=""></label></div>
+    <div class="faint small ics-info"></div>
     <label class="check-line"><input type="checkbox" name="replace" checked> Remplacer les cours déjà importés aux mêmes dates</label>
     <label class="check-line"><input type="checkbox" name="plan" checked> Réorganiser automatiquement la semaine après l’import</label>`;
   openModal({ title: 'Importer des cours', body, foot: '<span class="sp"></span><button class="btn primary" data-ok>Importer</button>', onMount: (m, close) => {
     const ta = m.querySelector('textarea');
-    m.querySelector('input[type=file]').addEventListener('change', async (e) => { const file = e.target.files[0]; if (file) ta.value = await file.text(); });
+    const info = m.querySelector('.ics-info');
+    const preview = () => {
+      try {
+        const r = parseImport(ta.value);
+        if (r.kind !== 'courses') { info.textContent = 'Sauvegarde complète détectée.'; return; }
+        const ds = r.events.map((e) => e.start.slice(0, 10)).sort();
+        info.textContent = `${r.events.length} cours trouvés, du ${ds[0].split('-').reverse().join('/')} au ${ds[ds.length - 1].split('-').reverse().join('/')}.`;
+      } catch (err) { info.textContent = ta.value.trim() ? err.message : ''; }
+    };
+    ta.addEventListener('input', preview);
+    m.querySelector('input[type=file]').addEventListener('change', async (e) => { const file = e.target.files[0]; if (file) { ta.value = await file.text(); preview(); } });
     m.querySelector('[data-ok]').onclick = async () => {
       let res;
       try { res = parseImport(ta.value); } catch (err) { toast(err.message, { duration: 6000 }); return; }
@@ -412,13 +428,16 @@ export function openImportDialog() {
       }
       const replace = m.querySelector('[name=replace]').checked;
       const doPlan = m.querySelector('[name=plan]').checked;
+      const from = m.querySelector('[name=from]').value, to = m.querySelector('[name=to]').value;
+      const events = res.events.filter((e) => (!from || e.start.slice(0, 10) >= from) && (!to || e.start.slice(0, 10) <= to));
+      if (!events.length) { toast('Aucun cours dans la période choisie.'); return; }
       let info;
-      mutate('Import cours', (st) => { info = applyCourses(st, res.events, replace); });
+      mutate('Import cours', (st) => { info = applyCourses(st, events, replace); });
       close();
       if (!info.added) { toast('Aucun cours valide trouvé dans le texte.'); return; }
       const weeks = [...new Set(info.dates.map((d) => fmtD(startOfWeek(parseD(d)))))];
       if (doPlan) {
-        for (const w of weeks) {
+        for (const w of weeks.slice(0, 10)) {
           const ws = parseD(w);
           if (addDays(ws, 7) < dayStart(new Date())) continue; // ne réorganise pas une semaine passée
           const plan = planWeek(state, ws);
